@@ -5,6 +5,7 @@ import numpy as np
 import pickle
 import random
 from random import randint
+from scapy.all import *
 from sklearn.model_selection import train_test_split
 from sklearn.ensemble import RandomForestClassifier
 from pyxdameraulevenshtein import damerau_levenshtein_distance, normalized_damerau_levenshtein_distance
@@ -13,7 +14,8 @@ from sklearn.metrics import classification_report
 from sklearn.metrics import confusion_matrix
 from sklearn.metrics import log_loss
 
-import feature_extraction as fe
+#import feature_extraction as fe
+import features_scapy as fe
 
 dest_ip_set = {}    # stores the destination IP set, a global variable
 dst_ip_counter = 0  # keeps destination counter value, a global variable
@@ -23,6 +25,7 @@ feature_set = []
 prev_class = ""
 concat_feature = []
 count = 0
+source_mac_add = ""
 
 def pcap_class_generator(folder):
     for path, dir_list, file_list in os.walk(folder):
@@ -42,14 +45,48 @@ def pcap_class_generator(folder):
 
 def packet_class_generator(pcap_class_gen):
     for pcapfile, class_ in pcap_class_gen:
-        capture = pyshark.FileCapture(pcapfile)
+        #capture = pyshark.FileCapture(pcapfile)
+        capture = rdpcap(pcapfile)
         global capture_len
+        global source_mac_add
         global count
         count = 0
         capture_len = 0
-        capture_len = len(list(capture))
-        for packet in capture:
-            yield packet, class_
+        mac_address_list = {}
+        src_mac_address_list = {}
+
+        for i, (packet) in enumerate(capture):
+            if packet[0].src not in mac_address_list:  # Counting the source MAC counter value
+                mac_address_list[packet[0].src] = 1
+            else:
+                mac_address_list[packet[0].src] += 1
+
+            if packet[0].dst not in mac_address_list:  # Counting the Destination MAC counter value
+                mac_address_list[packet[0].dst] = 1
+            else:
+                mac_address_list[packet[0].dst] += 1
+
+            if packet[0].src not in src_mac_address_list:  # keeping the source MAC address counter for capture length
+                src_mac_address_list[packet[0].src] = 1
+            else:
+                src_mac_address_list[packet[0].src] += 1
+
+        print(mac_address_list)
+        print(src_mac_address_list)
+        highest = max(mac_address_list.values())
+        for k, v in mac_address_list.items():
+            if v == highest:
+                if k in src_mac_address_list:
+                    source_mac_add = k
+        capture_len = src_mac_address_list[source_mac_add]
+        print("Source MAC ", source_mac_add)
+
+        # for packet in capture:
+        #     yield packet, class_
+
+        for i, (packet) in enumerate(capture):
+            if packet[0].src == source_mac_add:
+                yield packet, class_
 
 def feature_class_generator(packet_class_gen):
 
@@ -73,15 +110,16 @@ def feature_class_generator(packet_class_gen):
         fvector[0] = fe.get_arp_feature(packet)     # ARP feature
         fvector[2], nl_pro = fe.get_ip_feature(packet)      # IP feature
         fvector[5] = fe.get_eapol_feature(packet)   # EAPoL feature
+        fvector[19] = fe.get_rawdata_feature(packet)    # RawData feature
 
-        if nl_pro == "IP":      #Inspecting the IP layer
+        if nl_pro == "IP":      # Inspecting the IP layer
             fvector[3], fvector[4] = fe.get_icmp_feature(packet)    # ICMP, ICMPv6 features
             fvector[6], fvector[7], tl_pro = fe.get_tcpudp_feature(packet)  # TCP, UDP features
             fvector[17] = fe.get_r_alert_feature(packet)            # Router Alert feature
             fvector[20], dest_ip_set, dst_ip_counter = fe.get_dest_ip_counter_feature(packet, dest_ip_set, dst_ip_counter)    # Destination ip counter feature
 
         if tl_pro == "TCP" or tl_pro == "UDP":
-            fvector[13] = fe.get_dns_feature(packet, tl_pro)    #dns feature
+            fvector[13] = fe.get_dns_feature(packet, tl_pro)    # DNS feature
             fvector[10], fvector[11] = fe.get_bootp_dhcp_feature(packet, tl_pro)    # DHCP and BOOTP features
             fvector[8] = fe.get_http_feature(packet, tl_pro)    # HTTP feature
             fvector[15] = fe.get_ntp_feature(packet, tl_pro)    # NTP feature
@@ -120,6 +158,11 @@ def dataset(feature_class_gen):
                 last_vector = feature
             else:
                 if all(i == j for i, j in zip(last_vector, feature)):
+                    if capture_len == count and len(concat_feature) < 276:  # if the number of feature count is < 276,
+                        while len(concat_feature) < 276:  # add 0's as padding
+                            concat_feature = concat_feature + [0]
+                        yield concat_feature, class_
+                        print("capture_len == count", concat_feature)
                     continue
                 last_vector = feature
 
@@ -148,7 +191,7 @@ def dataset(feature_class_gen):
                             concat_feature = concat_feature + feature
                             if len(feature_set) == 12:
                                 yield concat_feature, class_
-                                print(concat_feature)
+                                print("len(feature_set) == 12", concat_feature)
                     else:
                         prev_class = ""
                         feature_set = []
@@ -160,7 +203,7 @@ def dataset(feature_class_gen):
                 while len(concat_feature) < 276:                    # add 0's as padding
                     concat_feature = concat_feature + [0]
                 yield concat_feature, class_
-                print(concat_feature)
+                print("capture_len == count", concat_feature)
     return zip(*g())
 
 def load_data(pcap_folder_name):
@@ -191,6 +234,7 @@ except (OSError, IOError) as e:
 
 s = set(dataset_y)      # list of unique device labels
 classifier_list = {}    # stores the computed classifiers
+accuracy = 0            # accuracy of prediction
 
 for i in range(10):
     # creates classifier for each device type
@@ -252,8 +296,19 @@ for i in range(10):
                 edit_distance = edit_distance + normalized_damerau_levenshtein_distance(str(features_DL['unknown'][count]), str(vector))
                 count += 1
             ED_results[prediction] = edit_distance
+
     print("Predicted classifiers: ", classifier_results)
     print("Edit distance results: ", ED_results.items())
+
+    lowest = min(ED_results.values())
+    for k, v in ED_results.items():
+        if v == lowest:
+            print("lowest ED: ", k, v)
+            if k == "D-LinkSiren":
+                accuracy += 1
+
+print("Accuracy: ", accuracy/10)
+
 
 
 

@@ -232,25 +232,21 @@ except (OSError, IOError) as e:
     all_features_DL = features_DL
     features_DL = {}
 
-X_train, X_test, y_train, y_test = train_test_split(dataset_X , dataset_y, test_size=0.25, random_state=0)
+X_train, X_test, y_train, y_test = train_test_split(dataset_X, dataset_y, test_size=0.25, random_state=0)
 
-X_train.shape, y_train.shape
-X_test.shape, y_test.shape
+clf = RandomForestClassifier(n_estimators=25)
+clf.fit(X_train, y_train)
 
-print("X_train: ", X_train)
-print("y_train: ", y_train)
-print("X_test: ", X_test)
-print("y_test: ", y_test)
+y_predict = clf.predict_proba(X_test)
 
-clf = svm.SVC(kernel='linear', C=1).fit(X_train, y_train)
-
-y_predict = clf.predict(X_test)
-print("y_test: ", y_test)
-print("y_predicted: ", y_predict)
-print(classification_report(y_test, y_predict))
+#print("y_test: ", y_test)
+#print("y_predicted: ", y_predict)
+y_pre = []
+for i, (prediction) in enumerate(y_predict):
+    print(prediction)
+    print("Actual: ", y_test[i])
+    print("Prediction: ", clf.classes_[np.argmax(prediction)])
+    y_pre.insert(i,clf.classes_[np.argmax(prediction)])
+print(classification_report(y_test, y_pre))
 print(clf.score(X_test, y_test))
-print(confusion_matrix(y_test, y_predict))
-
-
-
-
+print(confusion_matrix(y_test, y_pre))

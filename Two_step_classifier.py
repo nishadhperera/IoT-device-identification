@@ -27,6 +27,7 @@ concat_feature = []
 count = 0
 source_mac_add = ""
 
+
 def pcap_class_generator(folder):
     for path, dir_list, file_list in os.walk(folder):
         for name in fnmatch.filter(file_list, "*.pcap"):
@@ -41,11 +42,11 @@ def pcap_class_generator(folder):
             prev_class = ""
             concat_feature = []
             feature_set = []
-            yield os.path.join(path, name), os.path.basename(os.path.normpath(path))
+            yield os.path.join(path, name), os.path.basename(os.path.dirname(path)), os.path.basename(os.path.normpath(path))
+
 
 def packet_class_generator(pcap_class_gen):
-    for pcapfile, class_ in pcap_class_gen:
-        #capture = pyshark.FileCapture(pcapfile)
+    for pcapfile, vendor_, class_ in pcap_class_gen:
         capture = rdpcap(pcapfile)
         global capture_len
         global source_mac_add
@@ -71,26 +72,20 @@ def packet_class_generator(pcap_class_gen):
             else:
                 src_mac_address_list[packet[0].src] += 1
 
-        print(mac_address_list)
-        print(src_mac_address_list)
         highest = max(mac_address_list.values())
         for k, v in mac_address_list.items():
             if v == highest:
                 if k in src_mac_address_list:
                     source_mac_add = k
         capture_len = src_mac_address_list[source_mac_add]
-        print("Source MAC ", source_mac_add)
-
-        # for packet in capture:
-        #     yield packet, class_
 
         for i, (packet) in enumerate(capture):
             if packet[0].src == source_mac_add:
-                yield packet, class_
+                yield packet, vendor_, class_
+
 
 def feature_class_generator(packet_class_gen):
-
-    for packet, class_ in packet_class_gen:
+    for packet, vendor_, class_ in packet_class_gen:
         global dst_ip_counter
         global dest_ip_set
         global last_vector
@@ -129,11 +124,12 @@ def feature_class_generator(packet_class_gen):
             fvector[21] = fe.get_srcpc_feature(packet, tl_pro)  # source port class feature
             fvector[22] = fe.get_dstpc_feature(packet, tl_pro)  # destination port class feature
 
-        yield fvector, class_
+        yield fvector, vendor_, class_
 
 features_DL = {}
 all_features_DL = {}
 f_array = []
+
 
 def dataset(feature_class_gen):
     global feature_set
@@ -152,7 +148,7 @@ def dataset(feature_class_gen):
         global f_array
         global last_vector
 
-        for i, (feature, class_) in enumerate(feature_class_gen):
+        for i, (feature, vendor_, class_) in enumerate(feature_class_gen):
             # This block removes the consecutive identical features from the data set
             if not last_vector:
                 last_vector = feature
@@ -161,24 +157,12 @@ def dataset(feature_class_gen):
                     if capture_len == count and len(concat_feature) < 276:  # if the number of feature count is < 276,
                         while len(concat_feature) < 276:  # add 0's as padding
                             concat_feature = concat_feature + [0]
-                        yield concat_feature, class_
+                        yield concat_feature, vendor_, class_
                         print("capture_len == count", concat_feature)
                     continue
                 last_vector = feature
 
             # Generating the F' vector from F matrix
-            if not class_ in features_DL:
-                f_array = []
-                f_array.append(feature)
-                features_DL[class_] = f_array
-            else:
-                if len(f_array) == 5:
-                    features_DL[class_] = f_array
-                    print("f_array: ", f_array)
-                    f_array.append("End")
-                elif len(f_array) < 5:
-                    f_array.append(feature)
-
             if (len(feature_set) < 12) or (prev_class != class_):       # Get 12 unique features for each device type
                 if not prev_class:                                      # concatenated into a 276 dimensional vector
                     prev_class = class_
@@ -190,7 +174,7 @@ def dataset(feature_class_gen):
                             feature_set.append(feature)
                             concat_feature = concat_feature + feature
                             if len(feature_set) == 12:
-                                yield concat_feature, class_
+                                yield concat_feature, vendor_, class_
                                 print("len(feature_set) == 12", concat_feature)
                     else:
                         prev_class = ""
@@ -202,55 +186,62 @@ def dataset(feature_class_gen):
             if capture_len == count and len(concat_feature) < 276:  # if the number of feature count is < 276,
                 while len(concat_feature) < 276:                    # add 0's as padding
                     concat_feature = concat_feature + [0]
-                yield concat_feature, class_
+                yield concat_feature, vendor_, class_
                 print("capture_len == count", concat_feature)
     return zip(*g())
+
 
 def load_data(pcap_folder_name):
     pcap_gen = pcap_class_generator(pcap_folder_name)
     packet_gen = packet_class_generator(pcap_gen)
     feature_gen = feature_class_generator(packet_gen)
-    dataset_X, dataset_y = dataset(feature_gen)
+    dataset_X, dataset_v, dataset_y = dataset(feature_gen)
     dataset_X = np.array(dataset_X)
+    dataset_v = np.array(dataset_v)
     dataset_y = np.array(dataset_y)
-    return dataset_X, dataset_y
+    return dataset_X, dataset_v, dataset_y
 
-#pcap_folder="F:\\MSC\\Master Thesis\\Network traces\\captures_IoT_Sentinel\\Test"
-pcap_folder = "F:\\MSC\\Master Thesis\\Network traces\\captures_IoT_Sentinel\\captures_IoT-Sentinel"
+
+pcap_folder = "F:\\MSC\\Master Thesis\\Network traces\\captures_IoT_Sentinel\\Vendor_based"
 
 try:
-    dataset_X = pickle.load(open("dataset_X.pickle", "rb"))
-    dataset_y = pickle.load(open("dataset_y.pickle", "rb"))
-    all_features_DL = pickle.load(open("features_DL.pickle", "rb"))
+    dataset_X = pickle.load(open("vendor_dataset_X.pickle", "rb"))
+    dataset_v = pickle.load(open("vendor_dataset_v.pickle", "rb"))
+    dataset_y = pickle.load(open("vendor_dataset_y.pickle", "rb"))
     print("Pickling successful......")
 except (OSError, IOError) as e:
     print("No pickle datasets are available....")
-    dataset_X, dataset_y = load_data(pcap_folder)
-    pickle.dump(dataset_X, open("dataset_X.pickle", "wb"))
-    pickle.dump(dataset_y, open("dataset_y.pickle", "wb"))
-    pickle.dump(features_DL, open("features_DL.pickle", "wb"))
+    dataset_X, dataset_v, dataset_y = load_data(pcap_folder)
+    pickle.dump(dataset_X, open("vendor_dataset_X.pickle", "wb"))
+    pickle.dump(dataset_v, open("vendor_dataset_v.pickle", "wb"))
+    pickle.dump(dataset_y, open("vendor_dataset_y.pickle", "wb"))
     all_features_DL = features_DL
     features_DL = {}
 
-X_train, X_test, y_train, y_test = train_test_split(dataset_X , dataset_y, test_size=0.25, random_state=0)
+X_train, X_test, v_train, v_test, y_train, y_test = train_test_split(dataset_X, dataset_v, dataset_y,
+                                                                     test_size=0, random_state=0)
 
-X_train.shape, y_train.shape
-X_test.shape, y_test.shape
+clf = RandomForestClassifier(n_estimators=10)
+clf.fit(X_train, v_train)
 
-print("X_train: ", X_train)
-print("y_train: ", y_train)
-print("X_test: ", X_test)
-print("y_test: ", y_test)
+test_folder="F:\\MSC\\Master Thesis\\Network traces\\captures_IoT_Sentinel\\not trained data"
+X_unknown, v_unknown, y_unknown = load_data(test_folder)
+X_unknown = np.array(X_unknown)
+y_unknown = np.array(y_unknown)
 
-clf = svm.SVC(kernel='linear', C=1).fit(X_train, y_train)
+v_predict = clf.predict(X_unknown)
+print("Tested vendor: ", v_test)
+print("Predicted vendor: ", v_predict)
 
-y_predict = clf.predict(X_test)
-print("y_test: ", y_test)
-print("y_predicted: ", y_predict)
-print(classification_report(y_test, y_predict))
-print(clf.score(X_test, y_test))
-print(confusion_matrix(y_test, y_predict))
+for i, (pre_vendor) in enumerate(v_predict):
+    data_X = dataset_X[dataset_v == pre_vendor]
+    data_y = dataset_y[dataset_v == pre_vendor]
 
+    X_train, X_test, y_train, y_test = train_test_split(data_X, data_y, test_size=0, random_state=0)
+    clf2 = RandomForestClassifier(n_estimators=10)
+    clf2.fit(X_train, y_train)
 
-
-
+    unknown_fp = []
+    unknown_fp.append(X_unknown[i])
+    dev_predict = clf2.predict(unknown_fp)
+    print("Predicted device: ", dev_predict, "Predicted vendor: ", pre_vendor, "Actual device: ", y_unknown[i])
