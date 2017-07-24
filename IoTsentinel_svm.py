@@ -4,6 +4,7 @@ import pyshark
 import numpy as np
 import pickle
 import random
+import operator
 from random import randint
 from scapy.all import *
 from sklearn.model_selection import train_test_split
@@ -215,6 +216,22 @@ def load_data(pcap_folder_name):
     dataset_y = np.array(dataset_y)
     return dataset_X, dataset_y
 
+def plot_results(pred_accuracy, item_index, reverse):
+    dataset = sorted(pred_accuracy.items(), key=operator.itemgetter(item_index),
+                     reverse=reverse)  # sort the dictionary with values
+
+    # plot the results (device type vs accuracy of prediction)
+    device = list(zip(*dataset))[0]
+    accuracy = list(zip(*dataset))[1]
+
+    x_pos = np.arange(len(device))
+
+    plt.bar(x_pos, accuracy, align='edge')
+    plt.xticks(x_pos, device, rotation=315, ha='left')
+    plt.ylabel('Accuracy')
+    plt.title("Single classifier SVC")
+    plt.show()
+
 #pcap_folder="F:\\MSC\\Master Thesis\\Network traces\\captures_IoT_Sentinel\\Test"
 pcap_folder = "F:\\MSC\\Master Thesis\\Network traces\\captures_IoT_Sentinel\\captures_IoT-Sentinel"
 
@@ -222,7 +239,7 @@ try:
     dataset_X = pickle.load(open("dataset_X.pickle", "rb"))
     dataset_y = pickle.load(open("dataset_y.pickle", "rb"))
     all_features_DL = pickle.load(open("features_DL.pickle", "rb"))
-    print("Pickling successful......")
+    print("Pickling successful IoTSentinel.svm running......")
 except (OSError, IOError) as e:
     print("No pickle datasets are available....")
     dataset_X, dataset_y = load_data(pcap_folder)
@@ -232,24 +249,50 @@ except (OSError, IOError) as e:
     all_features_DL = features_DL
     features_DL = {}
 
-X_train, X_test, y_train, y_test = train_test_split(dataset_X , dataset_y, test_size=0.25, random_state=0)
+test_folder="F:\\MSC\\Master Thesis\\Network traces\\captures_IoT_Sentinel\\not trained data"
+X_unknown, y_unknown = load_data(test_folder)
+X_unknown = np.array(X_unknown)
+y_unknown = np.array(y_unknown)
+print("len(X_unknown), len(v_unknown), len(y_unknown): ", len(X_unknown), len(y_unknown))
 
-X_train.shape, y_train.shape
-X_test.shape, y_test.shape
+device_set = set(dataset_y)     # list of unique device labels
 
-print("X_train: ", X_train)
-print("y_train: ", y_train)
-print("X_test: ", X_test)
-print("y_test: ", y_test)
+X_train, X_test, y_train, y_test = train_test_split(dataset_X , dataset_y, test_size=0, random_state=0)     # split the dataset
 
-clf = svm.SVC(kernel='linear', C=1).fit(X_train, y_train)
+num_of_iter = 20
+dev_pred_accuracy = {}      # records prediction accuracy
 
-y_predict = clf.predict(X_test)
-print("y_test: ", y_test)
-print("y_predicted: ", y_predict)
-print(classification_report(y_test, y_predict))
-print(clf.score(X_test, y_test))
-print(confusion_matrix(y_test, y_predict))
+for iter in range(num_of_iter):
+    print("Prediction iteration ", iter)
+    clf = svm.SVC(kernel='linear', C=1).fit(X_train, y_train)       # train the SVC classifier
+
+    y_predict = clf.predict(X_unknown)
+
+    for i in range(len(y_unknown)):
+        if y_unknown[i] == y_predict[i]:
+            if y_unknown[i] not in dev_pred_accuracy:
+                dev_pred_accuracy[y_unknown[i]] = 1
+            else:
+                dev_pred_accuracy[y_unknown[i]] += 1
+
+print(len(dev_pred_accuracy))
+print(dev_pred_accuracy)
+
+for d in device_set:       # check if there are devices which were not predicted correctly at least once
+    if d not in dev_pred_accuracy:
+        dev_pred_accuracy[d] = 0
+
+print(len(dev_pred_accuracy))
+print(dev_pred_accuracy)
+
+for key, value in dev_pred_accuracy.items():
+    dev_pred_accuracy[key] = value/num_of_iter  # produce the accuracy as a fraction
+
+plot_results(dev_pred_accuracy, 1, True)
+
+# print(classification_report(y_test, y_predict))
+# print(clf.score(X_test, y_test))
+# print(confusion_matrix(y_test, y_predict))
 
 
 

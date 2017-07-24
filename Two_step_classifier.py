@@ -2,12 +2,15 @@ import os
 import fnmatch
 import pyshark
 import numpy as np
+import matplotlib.pyplot as plt
 import pickle
 import random
+import operator
 from random import randint
 from scapy.all import *
 from sklearn.model_selection import train_test_split
 from sklearn.ensemble import RandomForestClassifier
+from random import sample
 from pyxdameraulevenshtein import damerau_levenshtein_distance, normalized_damerau_levenshtein_distance
 from sklearn import svm
 from sklearn.metrics import classification_report
@@ -201,6 +204,21 @@ def load_data(pcap_folder_name):
     dataset_y = np.array(dataset_y)
     return dataset_X, dataset_v, dataset_y
 
+def plot_results(pred_accuracy):
+    dataset = sorted(pred_accuracy.items(), key=operator.itemgetter(1),
+                     reverse=True)  # sort the dictionary with values
+
+    # plot the results (device type vs accuracy of prediction)
+    device = list(zip(*dataset))[0]
+    accuracy = list(zip(*dataset))[1]
+
+    x_pos = np.arange(len(device))
+
+    plt.bar(x_pos, accuracy, align='edge')
+    plt.xticks(x_pos, device, rotation=315, ha='left')
+    plt.ylabel('Accuracy')
+    plt.title("Two step classifier (vendor & device prediction)")
+    plt.show()
 
 pcap_folder = "F:\\MSC\\Master Thesis\\Network traces\\captures_IoT_Sentinel\\Vendor_based"
 
@@ -218,30 +236,121 @@ except (OSError, IOError) as e:
     all_features_DL = features_DL
     features_DL = {}
 
-X_train, X_test, v_train, v_test, y_train, y_test = train_test_split(dataset_X, dataset_v, dataset_y,
-                                                                     test_size=0, random_state=0)
+vendor_set = set(dataset_v)         # set of unique device vendor labels
+all_devices_set = set(dataset_y)        # set of all device types with fingerprints
 
-clf = RandomForestClassifier(n_estimators=10)
-clf.fit(X_train, v_train)
+vendor_fp_counter = {}
+for vendor in vendor_set:       # get the number of fingerprints for each device vendor
+    count = 0
+    for record in dataset_v:
+        if record == vendor:
+            count += 1
+    vendor_fp_counter[vendor] = count
 
-test_folder="F:\\MSC\\Master Thesis\\Network traces\\captures_IoT_Sentinel\\not trained data"
+print("Number of different vendors: ", len(vendor_set), vendor_set)
+key_min = min(vendor_fp_counter, key=vendor_fp_counter.get)     # find the vendor with minimum device fingerprints
+min_fp = vendor_fp_counter[key_min]                             # number of minimum device fingerprints to be extracted from each vendor
+print("Min fp device: ", key_min, min_fp)
+
+test_folder="F:\\MSC\\Master Thesis\\Network traces\\captures_IoT_Sentinel\\not trained data vendor based"
 X_unknown, v_unknown, y_unknown = load_data(test_folder)
 X_unknown = np.array(X_unknown)
 y_unknown = np.array(y_unknown)
 
-v_predict = clf.predict(X_unknown)
-print("Tested vendor: ", v_test)
-print("Predicted vendor: ", v_predict)
+num_of_iter = 20
+dev_pred_accuracy = {}      # records device prediction accuracy
+vendor_pred_accuracy = {}      # records vendor prediction accuracy
 
-for i, (pre_vendor) in enumerate(v_predict):
-    data_X = dataset_X[dataset_v == pre_vendor]
-    data_y = dataset_y[dataset_v == pre_vendor]
+for j in range(num_of_iter):         # repeat for j times
+    data_VX = []
+    data_VV = []
 
-    X_train, X_test, y_train, y_test = train_test_split(data_X, data_y, test_size=0, random_state=0)
-    clf2 = RandomForestClassifier(n_estimators=10)
-    clf2.fit(X_train, y_train)
+    for vendor in vendor_set:
+        temp_X = dataset_X[dataset_v == vendor]     # filter all fps for a particular vendor
+        out_list = sample(list(temp_X), min_fp)     # select a data sample from temp_X for a vendor
+        for fp in out_list:
+            data_VX.append(fp)                      # append vendor specific fingerprints to the training data set
+            data_VV.append(vendor)                  # append vendor name to the respective training data set
 
-    unknown_fp = []
-    unknown_fp.append(X_unknown[i])
-    dev_predict = clf2.predict(unknown_fp)
-    print("Predicted device: ", dev_predict, "Predicted vendor: ", pre_vendor, "Actual device: ", y_unknown[i])
+    data_VX = np.array(data_VX)     # convert training data lists to numpy arrays
+    data_VV = np.array(data_VV)
+
+    X_train, X_test, v_train, v_test = train_test_split(data_VX, data_VV, test_size=0, random_state=0)  # split the data sets
+
+    clf = RandomForestClassifier(n_estimators=10)
+    clf.fit(X_train, v_train)       # training the classifier for vendor detection
+
+    v_predict = clf.predict(X_unknown)  # predict vendor types for unknown data (outputs a list of predictions, one for each unknown capture file)
+    print("Predicted vendor: ", v_predict)
+
+    for k in range(len(X_unknown)):
+        if v_unknown[k] == v_predict[k]:  # calculate the vendor prediction accuracy
+            if y_unknown[k] not in vendor_pred_accuracy:
+                vendor_pred_accuracy[y_unknown[k]] = 1
+            else:
+                vendor_pred_accuracy[y_unknown[k]] += 1
+
+    for i, (pre_vendor) in enumerate(v_predict):    # loop for predicting the device for the unknown fp based on predicted vendor
+        data_y = dataset_y[dataset_v == pre_vendor]
+        device_set = set(data_y)  # list of unique device labels for predicted vendor
+        print("Device set: ", device_set)
+        device_fp_counter = {}
+        for device in device_set:  # get the number of fingerprints for each device under predicted vendor (not all vendors)
+            count = 0
+            for record in data_y:
+                if record == device:
+                    count += 1
+                device_fp_counter[device] = count
+
+        print("device_fp_counter: ", device_fp_counter)
+        key_min = min(device_fp_counter,
+                      key=device_fp_counter.get)  # find the device with minimum device fingerprints for the predicted vendor
+        min_fp = device_fp_counter[
+            key_min]  # number of minimum device fingerprints to be extracted from each device for the predicted vendor
+
+        print("Minimum record: ", key_min, min_fp)
+        data_DX = []
+        data_DY = []
+
+        for device in device_set:
+            temp_X = dataset_X[dataset_y == device]     # filter all fps for a particular device
+            out_list = sample(list(temp_X), min_fp)     # select a data sample from temp_X for a device
+            for fp in out_list:
+                data_DX.append(fp)                      # append device specific fingerprints to the training data set
+                data_DY.append(device)                  # append device name to the respective training data set
+
+        data_DX = np.array(data_DX)         # convert training data lists to numpy arrays
+        data_DY = np.array(data_DY)
+
+        X_train, X_test, y_train, y_test = train_test_split(data_DX, data_DY, test_size=0, random_state=0)      # split data
+        clf_dev = RandomForestClassifier(n_estimators=10)
+        clf_dev.fit(X_train, y_train)       # training the classifier for device detection under the predicted vendor
+
+        unknown_fp = []
+        unknown_fp.append(X_unknown[i])
+        dev_predict = clf_dev.predict(unknown_fp)   # predict the device for each predicted vendor (one at a time)
+        print("Predicted device: ", dev_predict, "\tPredicted vendor: ", pre_vendor, "\tActual device: ", y_unknown[i])
+
+        if y_unknown[i] == dev_predict[0]:      # calculate the device prediction accuracy
+            if y_unknown[i] not in dev_pred_accuracy:
+                dev_pred_accuracy[y_unknown[i]] = 1
+            else:
+                dev_pred_accuracy[y_unknown[i]] += 1
+
+print(len(dev_pred_accuracy))
+print(dev_pred_accuracy)
+
+for d in all_devices_set:       # check if there are devices which were not predicted correctly at least once
+    if d not in dev_pred_accuracy:
+        dev_pred_accuracy[d] = 0
+
+for key, value in dev_pred_accuracy.items():
+    dev_pred_accuracy[key] = value / num_of_iter  # produce the accuracy as a fraction for device predictions
+
+print(len(dev_pred_accuracy))
+print(dev_pred_accuracy)
+print(len(vendor_pred_accuracy))
+print(vendor_pred_accuracy)
+
+plot_results(vendor_pred_accuracy)
+plot_results(dev_pred_accuracy)
