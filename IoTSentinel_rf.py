@@ -252,7 +252,7 @@ X_unknown = np.array(X_unknown)
 y_unknown = np.array(y_unknown)
 print("len(X_unknown), len(v_unknown), len(y_unknown): ", len(X_unknown), len(y_unknown))
 
-num_of_iter = 20
+num_of_iter = 100
 same_to_other_ratio = 10
 dev_pred_accuracy = {}      # records prediction accuracy
 
@@ -353,91 +353,8 @@ plt.bar(x_pos, accuracy, align='edge')
 plt.xticks(x_pos, device, rotation=315, ha='left')
 plt.ylabel('Accuracy')
 plt.title('Random forest with Edit Distance (Identical to IoT Sentinel)')
+plt.grid(linestyle='dotted')
 plt.show()
-
-
-
-# accuracy = 0            # accuracy of prediction
-# for i in range(num_of_iter):
-#     # creates classifier for each device type
-#     classifier_results = []  # stores the resultant classifiers
-#     for device in device_set:
-#         count = 0
-#         index_list = []
-#         for i, (label) in enumerate(dataset_y):
-#             if device == label:
-#                 index_list.append(i)
-#                 count = count + 1
-#
-#         dataX = ()
-#         datay = ()
-#         same_class_num = len(index_list)      # Takes all the feature vectors for a certain device type
-#         other_class_num = 10 * same_class_num  # number of samples from other classes
-#         n = random.sample(range(index_list[0], (index_list[len(index_list)-1]+1)), same_class_num)
-#         for j in n:
-#             dataX = dataX + (dataset_X[j],)
-#             datay = datay + (dataset_y[j],)
-#
-#         min_val = min(other_class_num, len(dataset_y)-len(index_list))
-#         for k in range(0, min_val):
-#             a = randint(0, len(dataset_y)-1)
-#             while a in index_list:
-#                 a = randint(0, len(dataset_y)-1)
-#             index_list.append(a)
-#             dataX = dataX + (dataset_X[a],)
-#             datay = datay + ("other",)
-#
-#         X_train, X_test, y_train, y_test = train_test_split(dataX, datay, test_size=0, random_state=0)
-#
-#         clf = RandomForestClassifier(n_estimators=10)
-#         clf.fit(X_train, y_train)
-#         classifier_list[device] = clf
-#
-#     # Predicting based on multiple classifiers
-#     test_folder="F:\\MSC\\Master Thesis\\Network traces\\captures_IoT_Sentinel\\unknown"
-#     X_test, y_test = load_data(test_folder)
-#     X_test = np.array(X_test)
-#     y_test = np.array(y_test)
-#
-#     tested_device = "EdnetGateway"
-#
-#     for device, classifier in classifier_list.items():
-#         y_predict = classifier.predict(X_test)
-#         # print("classifier name: ", device, "||  Predicted device: ", y_predict[0])
-#         if device == y_predict[0]:
-#             classifier_results.append(device)
-#
-#     #print("All features for ED: ", all_features_DL.items())
-#     #print("Test features for ED: ", features_DL.items())
-#     print("Predicted classifiers: ", classifier_results)
-#
-#     if len(classifier_results) > 1:
-#         ED_results = {}  # results of edit distance calculations
-#         for prediction in classifier_results:
-#             if prediction in all_features_DL:
-#                 count = 0
-#                 edit_distance = 0
-#                 for vector in all_features_DL[prediction]:
-#                     edit_distance = edit_distance + normalized_damerau_levenshtein_distance(str(features_DL['unknown'][count]), str(vector))
-#                     count += 1
-#                 ED_results[prediction] = edit_distance
-#
-#         print("Edit distance results: ", ED_results.items())
-#
-#         lowest = min(ED_results.values())
-#         for k, v in ED_results.items():
-#             if v == lowest:
-#                 print("lowest ED: ", k)
-#                 if k == tested_device:
-#                     accuracy += 1
-#     elif len(classifier_results) == 1:
-#         if classifier_results[0] == tested_device:
-#             accuracy += 1
-#
-# print("Accuracy: ", accuracy/10)
-
-
-
 
 
 

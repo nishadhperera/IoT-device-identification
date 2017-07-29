@@ -204,7 +204,7 @@ def load_data(pcap_folder_name):
     dataset_y = np.array(dataset_y)
     return dataset_X, dataset_v, dataset_y
 
-def plot_results(pred_accuracy):
+def plot_results(pred_accuracy, title):
     dataset = sorted(pred_accuracy.items(), key=operator.itemgetter(1),
                      reverse=True)  # sort the dictionary with values
 
@@ -217,7 +217,8 @@ def plot_results(pred_accuracy):
     plt.bar(x_pos, accuracy, align='edge')
     plt.xticks(x_pos, device, rotation=315, ha='left')
     plt.ylabel('Accuracy')
-    plt.title("Two step classifier (vendor & device prediction)")
+    plt.title(title)
+    plt.grid(linestyle='dotted')
     plt.show()
 
 pcap_folder = "F:\\MSC\\Master Thesis\\Network traces\\captures_IoT_Sentinel\\Vendor_based"
@@ -352,5 +353,5 @@ print(dev_pred_accuracy)
 print(len(vendor_pred_accuracy))
 print(vendor_pred_accuracy)
 
-plot_results(vendor_pred_accuracy)
-plot_results(dev_pred_accuracy)
+plot_results(vendor_pred_accuracy, "Two step classifier (Vendor prediction)")
+plot_results(dev_pred_accuracy, "Two step classifier (Device prediction)")

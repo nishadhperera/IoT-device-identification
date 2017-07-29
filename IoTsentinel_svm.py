@@ -11,6 +11,7 @@ from sklearn.model_selection import train_test_split
 from sklearn.ensemble import RandomForestClassifier
 from pyxdameraulevenshtein import damerau_levenshtein_distance, normalized_damerau_levenshtein_distance
 from sklearn import svm
+from random import sample
 from sklearn.metrics import classification_report
 from sklearn.metrics import confusion_matrix
 from sklearn.metrics import log_loss
@@ -230,6 +231,7 @@ def plot_results(pred_accuracy, item_index, reverse):
     plt.xticks(x_pos, device, rotation=315, ha='left')
     plt.ylabel('Accuracy')
     plt.title("Single classifier SVC")
+    plt.grid(linestyle='dotted')
     plt.show()
 
 #pcap_folder="F:\\MSC\\Master Thesis\\Network traces\\captures_IoT_Sentinel\\Test"
@@ -257,7 +259,36 @@ print("len(X_unknown), len(v_unknown), len(y_unknown): ", len(X_unknown), len(y_
 
 device_set = set(dataset_y)     # list of unique device labels
 
-X_train, X_test, y_train, y_test = train_test_split(dataset_X , dataset_y, test_size=0, random_state=0)     # split the dataset
+print("Device set: ", device_set)
+device_fp_counter = {}
+for device in device_set:  # get the number of fingerprints for each device under predicted vendor (not all vendors)
+    count = 0
+    for record in dataset_y:
+        if record == device:
+            count += 1
+        device_fp_counter[device] = count
+
+print("device_fp_counter: ", device_fp_counter)
+key_min = min(device_fp_counter,
+              key=device_fp_counter.get)  # find the device with minimum device fingerprints for the predicted vendor
+min_fp = device_fp_counter[
+    key_min]  # number of minimum device fingerprints to be extracted from each device for the predicted vendor
+
+
+data_DX = []
+data_DY = []
+
+for device in device_set:
+    temp_X = dataset_X[dataset_y == device]     # filter all fps for a particular device
+    out_list = sample(list(temp_X), min_fp)     # select a data sample from temp_X for a device
+    for fp in out_list:
+        data_DX.append(fp)                      # append device specific fingerprints to the training data set
+        data_DY.append(device)                  # append device name to the respective training data set
+
+data_DX = np.array(data_DX)         # convert training data lists to numpy arrays
+data_DY = np.array(data_DY)
+
+X_train, X_test, y_train, y_test = train_test_split(data_DX , data_DY, test_size=0, random_state=0)     # split the dataset
 
 num_of_iter = 20
 dev_pred_accuracy = {}      # records prediction accuracy
