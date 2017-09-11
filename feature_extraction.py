@@ -92,6 +92,7 @@ def get_dest_ip_counter_feature(packet, dest_ip_set, dst_ip_counter):
         dest_ip_set[packet['ip'].dst] += 1
     return dst_ip_counter, dest_ip_set, dst_ip_counter
 
+
 def get_dns_feature(packet, tl_pro):
     try:
         if packet['' + tl_pro + ''].srcport == "53" or packet['' + tl_pro + ''].dstport == "53":  # DNS feature detected

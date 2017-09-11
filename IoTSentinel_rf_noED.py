@@ -217,7 +217,7 @@ def load_data(pcap_folder_name):
     dataset_y = np.array(dataset_y)
     return dataset_X, dataset_y
 
-def plot_results(pred_accuracy, item_index, reverse):
+def plot_results(pred_accuracy, item_index, reverse, ylabel, title):
     dataset = sorted(pred_accuracy.items(), key=operator.itemgetter(item_index),
                      reverse=reverse)  # sort the dictionary with values
 
@@ -229,13 +229,14 @@ def plot_results(pred_accuracy, item_index, reverse):
 
     plt.bar(x_pos, accuracy, align='edge')
     plt.xticks(x_pos, device, rotation=315, ha='left')
-    plt.ylabel('Accuracy')
-    plt.title("Single classifier Random Forest")
+    plt.ylabel(ylabel)
+    plt.title(title)
     plt.grid(linestyle='dotted')
     plt.show()
 
 #pcap_folder="F:\\MSC\\Master Thesis\\Network traces\\captures_IoT_Sentinel\\Test"
-pcap_folder = "F:\\MSC\\Master Thesis\\Network traces\\captures_IoT_Sentinel\\captures_IoT-Sentinel"
+# pcap_folder = "F:\\MSC\\Master Thesis\\Network traces\\captures_IoT_Sentinel\\captures_IoT-Sentinel"
+pcap_folder =  "F:\\MSC\\Master Thesis\\Network traces\\captures_IoT_Sentinel_all\\captures_IoT-Sentinel"
 
 try:
     dataset_X = pickle.load(open("dataset_X.pickle", "rb"))
@@ -251,11 +252,11 @@ except (OSError, IOError) as e:
     all_features_DL = features_DL
     features_DL = {}
 
-test_folder="F:\\MSC\\Master Thesis\\Network traces\\captures_IoT_Sentinel\\not trained data"
-X_unknown, y_unknown = load_data(test_folder)
-X_unknown = np.array(X_unknown)
-y_unknown = np.array(y_unknown)
-print("len(X_unknown), len(y_unknown): ", len(X_unknown), len(y_unknown))
+# test_folder="F:\\MSC\\Master Thesis\\Network traces\\captures_IoT_Sentinel\\not trained data"
+# X_unknown, y_unknown = load_data(test_folder)
+# X_unknown = np.array(X_unknown)
+# y_unknown = np.array(y_unknown)
+# print("len(X_unknown), len(y_unknown): ", len(X_unknown), len(y_unknown))
 
 device_set = set(dataset_y)     # list of unique device labels
 
@@ -274,7 +275,6 @@ key_min = min(device_fp_counter,
 min_fp = device_fp_counter[
     key_min]  # number of minimum device fingerprints to be extracted from each device for the predicted vendor
 
-
 data_DX = []
 data_DY = []
 
@@ -289,16 +289,34 @@ for device in device_set:
 data_DX = np.array(data_DX)         # convert training data lists to numpy arrays
 data_DY = np.array(data_DY)
 
-
-X_train, X_test, y_train, y_test = train_test_split(data_DX, data_DY, test_size=0, random_state=0)
-
 num_of_iter = 20
 dev_pred_accuracy = {}      # records prediction accuracy
 f_importance= {}            # records the feature importance in classification
 
+test_dev_counter = {}
+
 for iter in range(num_of_iter):
     print("Prediction iteration ", iter)
-    clf = RandomForestClassifier(n_estimators=10)
+
+    X_train, X_test, y_train, y_test = train_test_split(data_DX, data_DY, test_size=0.25)
+    X_unknown = X_test
+    y_unknown = y_test
+
+    test_set = set(y_unknown)  # list of unique device labels
+    print("Number of test devices: ", len(test_set))
+    print("Test Device set: ", test_set)
+
+    for device in test_set:  # get the number of fingerprints for each device under predicted vendor (not all vendors)
+        if iter == 0:
+            count = 0
+        else:
+            count = test_dev_counter[device]
+        for record in y_unknown:
+            if record == device:
+                count += 1
+                test_dev_counter[device] = count
+
+    clf = RandomForestClassifier(n_estimators=50)
     clf.fit(X_train, y_train)
 
     importances = clf.feature_importances_      # calculates the feature importance
@@ -331,10 +349,10 @@ print(dev_pred_accuracy)
 print("len f_importance: ", len(f_importance))
 
 for key, value in dev_pred_accuracy.items():
-    dev_pred_accuracy[key] = value/num_of_iter  # produce the accuracy as a fraction
+    dev_pred_accuracy[key] = value/(test_dev_counter[key])  # produce the accuracy as a fraction
 
 for key, value in f_importance.items():
-    f_importance[key] = value/num_of_iter  # produce the accuracy as a fraction
+    f_importance[key] = value/(num_of_iter)  # produce the accuracy as a fraction
 
-plot_results(dev_pred_accuracy, 1, True)
-plot_results(f_importance, 1, True)
+plot_results(dev_pred_accuracy, 1, True, "Accuracy", "Single classifier - Random Forest")
+plot_results(f_importance, 1, True, "Feature importance", "Feature importance - SC Random Forest")

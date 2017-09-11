@@ -317,7 +317,7 @@ print(len(dev_pred_accuracy))
 print(dev_pred_accuracy)
 
 for key, value in dev_pred_accuracy.items():
-    dev_pred_accuracy[key] = value/num_of_iter  # produce the accuracy as a fraction
+    dev_pred_accuracy[key] = value/(num_of_iter * 5)  # produce the accuracy as a fraction
 
 plot_results(dev_pred_accuracy, 1, True)
 

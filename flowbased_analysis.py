@@ -8,6 +8,11 @@ from random import sample
 import operator
 from sklearn.model_selection import train_test_split
 from sklearn.ensemble import RandomForestClassifier
+from scipy.spatial import distance
+from sklearn.metrics import confusion_matrix
+from sklearn.metrics import classification_report
+
+import features_scapy as fe
 
 prev_packet = ""
 IA_times = []
@@ -22,12 +27,25 @@ pkt_counter = 0
 pkt_count_list = []
 pkt_direction = []
 pkt_direction_list = []
+dest_ip_set = {}    # stores the destination IP set, a global variable
+dst_ip_counter = 0  # keeps destination counter value, a global variable
+dest_ip_seq = []
+dest_ip_counter_list = []
+src_port_class_list = []
+dst_port_class_list = []
+src_port_cls = []
+dst_port_cls = []
+prev_EucD_packet = ""
+Euc_distances = []
+Euc_distance_list = []
 source_mac_add = ""
 new_device = False
 
 feature_list = []       # stores the features
 device_list = []        # stores the device names
 
+import IoTSentinel_rf
+IoTobject = IoTSentinel_rf
 
 def pcap_class_generator(pcap_folder):
     global IA_times
@@ -44,6 +62,17 @@ def pcap_class_generator(pcap_folder):
     global pkt_count_list
     global pkt_direction
     global pkt_direction_list
+    global dst_ip_counter
+    global dest_ip_set
+    global dest_ip_seq
+    global dest_ip_counter_list
+    global src_port_class_list
+    global dst_port_class_list
+    global src_port_cls
+    global dst_port_cls
+    global prev_EucD_packet
+    global Euc_distances
+    global Euc_distance_list
 
     for path, dir_list, file_list in os.walk(pcap_folder):
 
@@ -69,7 +98,25 @@ def pcap_class_generator(pcap_folder):
             if pkt_direction:
                 pkt_direction_list.append(pkt_direction)
                 pkt_direction = []
-
+            if dst_ip_counter > 0:
+                dest_ip_counter_list.append(dest_ip_seq)
+                dst_ip_counter = 0
+                dest_ip_set = {}
+                dest_ip_seq = []
+            if src_port_cls:
+                src_port_class_list.append(src_port_cls)
+                dst_port_class_list.append(dst_port_cls)
+                src_port_cls = []
+                dst_port_cls = []
+            if Euc_distances:
+                Euc_distance_list.append(Euc_distances)
+                Euc_distances = []
+                prev_EucD_packet = ""
+            IoTobject.prev_class = ""
+            IoTobject.concat_feature = []
+            IoTobject.feature_set = []
+            IoTobject.dest_ip_set.clear()
+            IoTobject.dst_ip_counter = 0
             yield os.path.join(path, name), os.path.basename(os.path.normpath(path))
 
 
@@ -80,6 +127,8 @@ def packet_filter_generator(pcap_class_gen, filter_con):
         capture = rdpcap(pcapfile)
         mac_address_list = {}
         src_mac_address_list = {}
+        IoTobject.capture_len = 0
+        IoTobject.count = 0
 
         for i, (packet) in enumerate(capture):
             if packet[0].src not in mac_address_list:  # Counting the source MAC counter value
@@ -102,6 +151,7 @@ def packet_filter_generator(pcap_class_gen, filter_con):
             if v == highest:
                 if k in src_mac_address_list:
                     source_mac_add = k
+        IoTobject.capture_len = src_mac_address_list[source_mac_add]
         print("Source MAC ", source_mac_add)
 
         for i, (packet) in enumerate(capture):
@@ -196,16 +246,18 @@ def calc_IA_features(packet_list, filter_con):
         mean_IAT = np.mean(data)                # mean of inter-arrival time
         q3_IAT = np.percentile(data, 75)    # third quartile of inter-arrival time
         var_IAT = np.var(data)              # variance of inter-arrival time
+        iqr_IAT = q3_IAT - q1_IAT           # inter quartile range of inter-arrival time
 
-        print(i, "IA features: ", filter_con, min_IAT, max_IAT, q1_IAT, median_IAT, mean_IAT, q3_IAT, var_IAT)
+        print(i, "IA features: ", filter_con, min_IAT, max_IAT, q1_IAT, median_IAT, mean_IAT, q3_IAT, var_IAT, iqr_IAT)
 
-        feature_list[i].append(round(min_IAT, 2))
-        feature_list[i].append(round(max_IAT, 2))
-        feature_list[i].append(round(q1_IAT, 2))
-        feature_list[i].append(round(median_IAT, 2))
-        feature_list[i].append(round(mean_IAT, 2))
-        feature_list[i].append(round(q3_IAT, 2))
-        feature_list[i].append(round(var_IAT, 2))
+        feature_list[i].append(min_IAT)
+        feature_list[i].append(max_IAT)
+        feature_list[i].append(q1_IAT)
+        feature_list[i].append(median_IAT)
+        feature_list[i].append(mean_IAT)
+        feature_list[i].append(q3_IAT)
+        feature_list[i].append(var_IAT)
+        feature_list[i].append(iqr_IAT)
 
         # FFT calculation for inter-arrival times
         data = np.array(data)
@@ -250,9 +302,10 @@ def calc_ethsize_features(packet_list, filter_con):
         mean_ethlen = np.mean(data)  # mean of ethernet packet size
         q3_ethlen = np.percentile(data, 75)  # third quartile of ethernet packet size
         var_ethlen = np.var(data)  # variance of ethernet packet size
+        iqr_ethlen = q3_ethlen - q1_ethlen      # IQR of ethernet packet size
 
         print(i, "Ethernet packet size features: ", min_ethlen, max_ethlen, q1_ethlen, median_ethlen, mean_ethlen,
-              q3_ethlen, var_ethlen)
+              q3_ethlen, var_ethlen, iqr_ethlen)
 
         feature_list[i].append(min_ethlen)
         feature_list[i].append(max_ethlen)
@@ -261,6 +314,7 @@ def calc_ethsize_features(packet_list, filter_con):
         feature_list[i].append(mean_ethlen)
         feature_list[i].append(q3_ethlen)
         feature_list[i].append(var_ethlen)
+        feature_list[i].append(iqr_ethlen)
 
     # plot_list(ether_len_list, "Ethernet packet size variation pattern with number of packets (%s)" % filter_con, "Packet count",
     #           "Ethernet packet size")
@@ -289,8 +343,9 @@ def calc_IP_size_features(packet_list, filter_con):
         mean_ip_len = np.mean(data)  # mean of IP packet size
         q3_ip_len = np.percentile(data, 75)  # third quartile of IP packet size
         var_ip_len = np.var(data)  # variance of IP packet size
+        iqr_ip_len = q3_ip_len - q1_ip_len  # IQR of IP packet size
 
-        print(i, "IP packet size features: ", min_ip_len, max_ip_len, q1_ip_len, median_ip_len, mean_ip_len, q3_ip_len, var_ip_len)
+        print(i, "IP packet size features: ", min_ip_len, max_ip_len, q1_ip_len, median_ip_len, mean_ip_len, q3_ip_len, var_ip_len, iqr_ip_len)
 
         feature_list[i].append(min_ip_len)
         feature_list[i].append(max_ip_len)
@@ -299,6 +354,7 @@ def calc_IP_size_features(packet_list, filter_con):
         feature_list[i].append(mean_ip_len)
         feature_list[i].append(q3_ip_len)
         feature_list[i].append(var_ip_len)
+        feature_list[i].append(iqr_ip_len)
 
     # plot_list(IP_len_list, "IP packet size variation pattern with number of packets (%s)" % filter_con, "Packet count",
     #           "IP packet size")
@@ -327,8 +383,9 @@ def calc_IP_header_size_features(packet_list, filter_con):
         mean_iph_len = np.mean(data)  # mean of IP packet header size
         q3_iph_len = np.percentile(data, 75)  # third quartile of IP packet header size
         var_iph_len = np.var(data)  # variance of IP packet header size
+        iqr_iph_len = q3_iph_len - q1_iph_len   # IQR of IP packet header size
 
-        print(i, "IP packet header size features: ", min_iph_len, max_iph_len, q1_iph_len, median_iph_len, mean_iph_len, q3_iph_len, var_iph_len)
+        print(i, "IP packet header size features: ", min_iph_len, max_iph_len, q1_iph_len, median_iph_len, mean_iph_len, q3_iph_len, var_iph_len, iqr_iph_len)
 
         feature_list[i].append(min_iph_len)
         feature_list[i].append(max_iph_len)
@@ -337,6 +394,7 @@ def calc_IP_header_size_features(packet_list, filter_con):
         feature_list[i].append(mean_iph_len)
         feature_list[i].append(q3_iph_len)
         feature_list[i].append(var_iph_len)
+        feature_list[i].append(iqr_iph_len)
 
     # plot_list(IP_header_len_list, "IP packet header size variation pattern with number of packets (%s)" % filter_con, "Packet count",
     #           "IP packet header size")
@@ -376,16 +434,141 @@ def calc_pkt_directions(packet_list, filter_con):
                 pkt_direction.append(1)
         except IndexError:
             pass
-        # yield packet, dev_name
+        yield packet, dev_name
 
     pkt_direction_list.append(pkt_direction)
 
     for i, (data) in enumerate(pkt_direction_list):
-        for j in range(10):
+        for j in range(12):
             if j < len(data):
                 feature_list[i].append(data[j])
             else:
                 feature_list[i].append(2)
+
+
+def calc_IP_destinations(packet_list, filter_con):
+    global dest_ip_counter_list
+    global dest_ip_set
+    global dst_ip_counter
+    global dest_ip_seq
+
+    dest_ip_counter_list = []
+    dst_ip_counter = 0
+    dest_ip_seq = []
+
+    for i, (packet, dev_name) in enumerate(packet_list):
+        try:
+            if packet["IP"].dst not in dest_ip_set:  # Counting the Destination IP counter value
+                dest_ip_set[packet["IP"].dst] = 1
+                dst_ip_counter = dst_ip_counter + 1
+            else:
+                dest_ip_set[packet["IP"].dst] += 1
+        except IndexError:
+            pass
+        dest_ip_seq.append(dst_ip_counter)
+        yield packet, dev_name
+
+    dest_ip_counter_list.append(dest_ip_seq)
+    print("dest_ip_counter_list: ", len(dest_ip_counter_list), dest_ip_counter_list)
+
+    for i, (data) in enumerate(dest_ip_counter_list):
+        for j in range(12):
+            if j < len(data):
+                feature_list[i].append(data[j])
+            else:
+                feature_list[i].append(0)
+
+
+def calc_port_class(packet_list, filter_con):
+    global src_port_class_list
+    global dst_port_class_list
+    global src_port_cls
+    global dst_port_cls
+
+    src_port_class_list = []
+    dst_port_class_list = []
+    src_port_cls = []
+    dst_port_cls = []
+
+    for i, (packet, dev_name) in enumerate(packet_list):
+        try:
+            tcp, udp, tl_pro = fe.get_tcpudp_feature(packet)    # TCP, UDP features
+            src_port_cls.append(fe.get_srcpc_feature(packet, tl_pro))                # source port class feature
+            dst_port_cls.append(fe.get_dstpc_feature(packet, tl_pro))
+        except IndexError:
+            pass
+        yield packet, dev_name
+
+    src_port_class_list.append(src_port_cls)
+    dst_port_class_list.append(dst_port_cls)
+    print("src_port_class_list: ", len(dst_port_class_list), dst_port_class_list)
+
+    for i, (data) in enumerate(src_port_class_list):
+        for j in range(12):
+            if j < len(data):
+                feature_list[i].append(data[j])
+            else:
+                feature_list[i].append(0)
+
+    for i, (data) in enumerate(dst_port_class_list):
+        for j in range(12):
+            if j < len(data):
+                feature_list[i].append(data[j])
+            else:
+                feature_list[i].append(0)
+
+
+def calc_euclidean_distance(packet_list, filter_con):
+    global prev_EucD_packet
+    global Euc_distances
+    global Euc_distance_list
+    Euc_distance_list = []
+
+    for i, (packet, dev_name) in enumerate(packet_list):
+        if prev_EucD_packet == "":
+            pass
+        else:
+            Euc_distances.append(distance.euclidean(np.array(packet), np.array(prev_EucD_packet)))
+        prev_EucD_packet = packet
+        yield packet, dev_name
+
+    Euc_distance_list.append(Euc_distances)
+    Euc_distances = []
+    prev_packet = ""
+    print("len(Euc_distance_list)", len(Euc_distance_list))
+
+    for i, (data) in enumerate(Euc_distance_list):
+
+        min_euc_D = min(data)  # minimum packet inter-arrival time
+        max_euc_D = max(data)  # maximum packet inter-arrival time
+        q1_euc_D = np.percentile(data, 25)    # first quartile of inter-arrival time
+        median_euc_D = np.percentile(data, 50)    # median of inter-arrival time
+        mean_euc_D = np.mean(data)                # mean of inter-arrival time
+        q3_euc_D = np.percentile(data, 75)    # third quartile of inter-arrival time
+        var_euc_D = np.var(data)              # variance of inter-arrival time
+
+        print(data)
+        print(i, "Euclidean distance features: ", filter_con, min_euc_D, max_euc_D, q1_euc_D, median_euc_D, mean_euc_D, q3_euc_D, var_euc_D)
+
+        feature_list[i].append(round(min_euc_D, 2))
+        feature_list[i].append(round(max_euc_D, 2))
+        feature_list[i].append(round(q1_euc_D, 2))
+        feature_list[i].append(round(median_euc_D, 2))
+        feature_list[i].append(round(mean_euc_D, 2))
+        feature_list[i].append(round(q3_euc_D, 2))
+        feature_list[i].append(round(var_euc_D, 2))
+
+
+def import_IoT_sentinel_features(packet_list):
+    global feature_list
+
+    feature_gen = IoTobject.feature_class_generator(packet_list)
+    feat_X, dev_y = IoTobject.dataset(feature_gen)
+
+    for i, (data) in enumerate(feat_X):
+        feature_list[i] = feature_list[i] + data
+
+    return 0
 
 
 def end_generator(packet_list):
@@ -409,7 +592,10 @@ def load_behavior_features(folder):
     piped_to_ip_header_size = calc_IP_size_features(piped_to_ip_size, filter)
     piped_to_pkt_count = calc_IP_header_size_features(piped_to_ip_header_size, filter)
     piped_to_pkt_direction = calc_num_of_pkts(piped_to_pkt_count, filter)
-    calc_pkt_directions(piped_to_pkt_direction, filter)
+    piped_to_end_generator = calc_pkt_directions(piped_to_pkt_direction, filter)
+    # piped_to_port_class = calc_IP_destinations(piped_to_ip_destinations, filter)
+    # piped_to_end_generator = calc_port_class(piped_to_port_class, filter)
+    end_generator(piped_to_end_generator)
 
 
     filter = "Src_to_Other"
@@ -423,29 +609,33 @@ def load_behavior_features(folder):
     piped_to_ip_size = calc_ethsize_features(piped_to_eth_size, filter)
     piped_to_ip_header_size = calc_IP_size_features(piped_to_ip_size, filter)
     piped_to_pkt_count = calc_IP_header_size_features(piped_to_ip_header_size, filter)
-    piped_to_pkt_direction = calc_num_of_pkts(piped_to_pkt_count, filter)
-    end_generator(piped_to_pkt_direction)
+    piped_to_ip_destinations = calc_num_of_pkts(piped_to_pkt_count, filter)
+    piped_to_port_class = calc_IP_destinations(piped_to_ip_destinations, filter)
+    piped_to_end_generator = calc_port_class(piped_to_port_class, filter)
+    # piped_to_end_generator = calc_euclidean_distance(piped_to_IA, filter)
+    # import_IoT_sentinel_features(piped_to_IoT_sentinel)
+    end_generator(piped_to_end_generator)
 
 
-    filter = "Other_to_Src"
-    # load packet data based on filter conditions: bidirectional, Src_to_Other, Other_to_Src
-    packet_list_to_Src = load_data(folder, filter)
-
-    # piped_to_IA = initiate_feature_list(packet_list_to_Src)
-
-    # Calculate the features for packet list
-    piped_to_eth_size = calc_IA_features(packet_list_to_Src, filter)
-    piped_to_ip_size = calc_ethsize_features(piped_to_eth_size, filter)
-    piped_to_ip_header_size = calc_IP_size_features(piped_to_ip_size, filter)
-    piped_to_pkt_count = calc_IP_header_size_features(piped_to_ip_header_size, filter)
-    piped_to_pkt_direction = calc_num_of_pkts(piped_to_pkt_count, filter)
-    end_generator(piped_to_pkt_direction)
+    # filter = "Other_to_Src"
+    # # load packet data based on filter conditions: bidirectional, Src_to_Other, Other_to_Src
+    # packet_list_to_Src = load_data(folder, filter)
+    #
+    # # piped_to_IA = initiate_feature_list(packet_list_to_Src)
+    #
+    # # Calculate the features for packet list
+    # piped_to_eth_size = calc_IA_features(packet_list_to_Src, filter)
+    # piped_to_ip_size = calc_ethsize_features(piped_to_eth_size, filter)
+    # piped_to_ip_header_size = calc_IP_size_features(piped_to_ip_size, filter)
+    # piped_to_pkt_count = calc_IP_header_size_features(piped_to_ip_header_size, filter)
+    # piped_to_end_generator = calc_num_of_pkts(piped_to_pkt_count, filter)
+    # end_generator(piped_to_end_generator)
 
     return feature_list, device_list
 
 
 # Location where the training dataset is available
-pcap_folder = "F:\\MSC\\Master Thesis\\Network traces\\captures_IoT_Sentinel\\captures_behavioral"
+pcap_folder = "F:\\MSC\\Master Thesis\\Network traces\\captures_IoT_Sentinel_all\\captures_IoT-Sentinel"
 # pcap_folder = "F:\\MSC\\Master Thesis\\Network traces\\captures_IoT_Sentinel\\Test"
 
 try:
@@ -461,15 +651,15 @@ except (OSError, IOError) as e:
     device_list = []
 
 
-test_folder = "F:\\MSC\\Master Thesis\\Network traces\\captures_IoT_Sentinel\\not trained data behavioral"
-X_unknown, y_unknown = load_behavior_features(test_folder)
-X_unknown = np.array(X_unknown)
-y_unknown = np.array(y_unknown)
-print("len(X_unknown), len(y_unknown): ", len(X_unknown), len(y_unknown))
-
 Number_of_features = len(dataset_X[0])
 print("Number of features: ", Number_of_features)
 print("Number of captures: ", len(dataset_X))
+
+# test_folder = "F:\\MSC\\Master Thesis\\Network traces\\captures_IoT_Sentinel\\not trained data behavioral"
+# X_unknown, y_unknown = load_behavior_features(test_folder)
+# X_unknown = np.array(X_unknown)
+# y_unknown = np.array(y_unknown)
+# print("len(X_unknown), len(y_unknown): ", len(X_unknown), len(y_unknown))
 
 dataset_X = np.array(dataset_X)
 dataset_y = np.array(dataset_y)
@@ -492,7 +682,6 @@ key_min = min(device_fp_counter,
 min_fp = device_fp_counter[
     key_min]  # number of minimum device fingerprints to be extracted from each device for the predicted vendor
 
-
 data_DX = []
 data_DY = []
 
@@ -509,25 +698,65 @@ data_DY = np.array(data_DY)
 
 print("len(data_DX): ", len(data_DX))
 print(data_DX)
-print("len(data_Dy): ",len(data_DY))
+print("len(data_Dy): ", len(data_DY))
 print(data_DY)
 
 for i, (data) in enumerate(data_DX):
     print(len(data), data_DY[i])
 
-X_train, X_test, y_train, y_test = train_test_split(data_DX, data_DY, test_size=0, random_state=0)
 
-num_of_iter = 20
+
+# X_train, X_test, y_train, y_test = train_test_split(data_DX, data_DY, test_size=0.2, random_state=0)
+# X_unknown = X_test
+# y_unknown = y_test
+# print("Splitted y-Unknown: ", y_unknown)
+#
+# test_set = set(y_unknown)     # list of unique device labels
+# print("Number of test devices: ", len(test_set))
+# print("Test Device set: ", test_set)
+#
+#
+# for device in test_set:  # get the number of fingerprints for each device under predicted vendor (not all vendors)
+#     count = 0
+#     for record in y_unknown:
+#         if record == device:
+#             count += 1
+#             test_dev_counter[device] = count
+
+num_of_iter = 1
 dev_pred_accuracy = {}      # records prediction accuracy
 f_importance = {}            # records the feature importance in classification
+all_tested = []
+all_predicted = []
+test_dev_counter = {}
+
 
 for iter in range(num_of_iter):
     print("Prediction iteration ", iter)
-    clf = RandomForestClassifier(n_estimators=10)
+
+    X_train, X_test, y_train, y_test = train_test_split(data_DX, data_DY, test_size=0.25, random_state=21)
+    X_unknown = X_test
+    y_unknown = y_test
+    print("Splitted y-Unknown: ", y_unknown)
+
+    test_set = set(y_unknown)  # list of unique device labels
+    print("Number of test devices: ", len(test_set))
+    print("Test Device set: ", test_set)
+
+    for device in test_set:  # get the number of fingerprints for each device under predicted vendor (not all vendors)
+        if iter == 0:
+            count = 0
+        else:
+            count = test_dev_counter[device]
+        for record in y_unknown:
+            if record == device:
+                count += 1
+                test_dev_counter[device] = count
+
+    clf = RandomForestClassifier(n_estimators=50)
     clf.fit(X_train, y_train)
 
     importances = clf.feature_importances_  # calculates the feature importance
-    print("Importance: ", importances)
     std = np.std([tree.feature_importances_ for tree in clf.estimators_], axis=0)
     indices = np.argsort(importances)[::-1]
     for f in range(X_train.shape[1]):
@@ -539,23 +768,35 @@ for iter in range(num_of_iter):
     y_predict = clf.predict(X_unknown)
 
     for i in range(len(y_unknown)):
+        all_tested.append(y_unknown[i])
+        all_predicted.append(y_predict[i])
         if y_unknown[i] == y_predict[i]:
             if y_unknown[i] not in dev_pred_accuracy:
                 dev_pred_accuracy[y_unknown[i]] = 1
             else:
                 dev_pred_accuracy[y_unknown[i]] += 1
 
+print("test_dev_counter: ", test_dev_counter)
+
 for d in device_set:       # check if there are devices which were not predicted correctly at least once
     if d not in dev_pred_accuracy:
         dev_pred_accuracy[d] = 0
 
 for key, value in dev_pred_accuracy.items():
-    dev_pred_accuracy[key] = value/num_of_iter  # produce the accuracy as a fraction
+    dev_pred_accuracy[key] = value/(test_dev_counter[key])  # produce the accuracy as a fraction
 
 for key, value in f_importance.items():
-    f_importance[key] = value/num_of_iter  # produce the accuracy as a fraction
+    f_importance[key] = value/(num_of_iter)  # produce the accuracy as a fraction
+
+print(len(all_tested))
+print(len(all_predicted))
+print("dev_pred_accuracy: ", dev_pred_accuracy)
 
 plot_results(dev_pred_accuracy, "Single classifier RF - Flowbased analysis", 1, True, "Accuracy")
 plot_results(f_importance, "Feature importance RF - Flowbased analysis", 1, True, "Importance")
+print(classification_report(all_tested, all_predicted))
+print(confusion_matrix(all_tested, all_predicted))
 
 print(f_importance)
+
+

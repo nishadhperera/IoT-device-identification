@@ -276,9 +276,9 @@ for j in range(num_of_iter):         # repeat for j times
     data_VX = np.array(data_VX)     # convert training data lists to numpy arrays
     data_VV = np.array(data_VV)
 
-    X_train, X_test, v_train, v_test = train_test_split(data_VX, data_VV, test_size=0, random_state=0)  # split the data sets
+    X_train, X_test, v_train, v_test = train_test_split(data_VX, data_VV, test_size=0)  # split the data sets
 
-    clf = RandomForestClassifier(n_estimators=10)
+    clf = RandomForestClassifier(n_estimators=50)
     clf.fit(X_train, v_train)       # training the classifier for vendor detection
 
     v_predict = clf.predict(X_unknown)  # predict vendor types for unknown data (outputs a list of predictions, one for each unknown capture file)
@@ -323,8 +323,8 @@ for j in range(num_of_iter):         # repeat for j times
         data_DX = np.array(data_DX)         # convert training data lists to numpy arrays
         data_DY = np.array(data_DY)
 
-        X_train, X_test, y_train, y_test = train_test_split(data_DX, data_DY, test_size=0, random_state=0)      # split data
-        clf_dev = RandomForestClassifier(n_estimators=10)
+        X_train, X_test, y_train, y_test = train_test_split(data_DX, data_DY, test_size=0)      # split data
+        clf_dev = RandomForestClassifier(n_estimators=50)
         clf_dev.fit(X_train, y_train)       # training the classifier for device detection under the predicted vendor
 
         unknown_fp = []
@@ -346,7 +346,10 @@ for d in all_devices_set:       # check if there are devices which were not pred
         dev_pred_accuracy[d] = 0
 
 for key, value in dev_pred_accuracy.items():
-    dev_pred_accuracy[key] = value / num_of_iter  # produce the accuracy as a fraction for device predictions
+    dev_pred_accuracy[key] = value / (num_of_iter * 5)  # produce the accuracy as a fraction for device predictions
+
+for key, value in vendor_pred_accuracy.items():
+    vendor_pred_accuracy[key] = value / (num_of_iter * 5)  # produce the accuracy as a fraction for device predictions
 
 print(len(dev_pred_accuracy))
 print(dev_pred_accuracy)

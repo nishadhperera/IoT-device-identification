@@ -196,7 +196,7 @@ def get_dstpc_feature(packet, tl_pro):
             return 1
         else:
             return 0
-    except Error:
+    except IndexError:
         return 0
 
 

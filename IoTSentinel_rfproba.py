@@ -234,7 +234,7 @@ except (OSError, IOError) as e:
 
 X_train, X_test, y_train, y_test = train_test_split(dataset_X, dataset_y, test_size=0.25, random_state=0)
 
-clf = RandomForestClassifier(n_estimators=10)
+clf = RandomForestClassifier(n_estimators=50)
 clf.fit(X_train, y_train)
 
 y_predict = clf.predict_proba(X_test)
