@@ -734,7 +734,7 @@ test_dev_counter = {}
 for iter in range(num_of_iter):
     print("Prediction iteration ", iter)
 
-    X_train, X_test, y_train, y_test = train_test_split(data_DX, data_DY, test_size=0.25, random_state=21)
+    X_train, X_test, y_train, y_test = train_test_split(data_DX, data_DY, test_size=0.25, random_state=42)
     X_unknown = X_test
     y_unknown = y_test
     print("Splitted y-Unknown: ", y_unknown)
@@ -753,7 +753,7 @@ for iter in range(num_of_iter):
                 count += 1
                 test_dev_counter[device] = count
 
-    clf = RandomForestClassifier(n_estimators=50)
+    clf = RandomForestClassifier(n_estimators=100)
     clf.fit(X_train, y_train)
 
     importances = clf.feature_importances_  # calculates the feature importance

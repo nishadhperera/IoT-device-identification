@@ -11,6 +11,10 @@ from sklearn.ensemble import RandomForestClassifier
 from scipy.spatial import distance
 from sklearn.metrics import confusion_matrix
 from sklearn.metrics import classification_report
+from sklearn.model_selection import cross_val_score
+from sklearn.model_selection import cross_val_predict
+from sklearn.ensemble import ExtraTreesClassifier
+from sklearn.ensemble import BaggingClassifier
 
 import features_scapy as fe
 
@@ -586,7 +590,6 @@ def load_behavior_features(folder):
 
 # Location where the training dataset is available
 pcap_folder = "F:\\MSC\\Master Thesis\\Network traces\\captures_IoT_Sentinel_all\\captures_IoT-Sentinel_vendor_based"
-# pcap_folder = "F:\\MSC\\Master Thesis\\Network traces\\captures_IoT_Sentinel\\Test"
 
 try:
     dataset_X = pickle.load(open("Ven_behav_features.pickle", "rb"))
@@ -613,12 +616,7 @@ dataset_y = np.array(dataset_y)
 
 all_devices_set = set(dataset_y)
 
-from sklearn.model_selection import cross_val_score
-from sklearn.model_selection import cross_val_predict
-from sklearn.ensemble import ExtraTreesClassifier
-from sklearn.ensemble import BaggingClassifier
-
-num_of_iter = 10
+num_of_iter = 1
 dev_pred_accuracy = {}          # records device prediction accuracy
 vendor_pred_accuracy = {}       # records vendor prediction accuracy
 test_dev_counter = {}
@@ -662,8 +660,8 @@ for iter in range(num_of_iter):    # repeat for j times
     data_VV = np.array(data_VV)
 
 
-    # clf = RandomForestClassifier(n_estimators=50)
-    clf = BaggingClassifier(ExtraTreesClassifier(n_estimators=50), max_samples=0.5, max_features=0.5)
+    clf = RandomForestClassifier(n_estimators=100)
+    # clf = BaggingClassifier(ExtraTreesClassifier(n_estimators=50), max_samples=0.5, max_features=0.5)
     clf.fit(data_VX, data_VV)  # training the classifier for vendor detection
 
     # scores = cross_val_score(clf, data_VX, data_VV, cv=5)
@@ -689,8 +687,8 @@ for iter in range(num_of_iter):    # repeat for j times
     # v_predict = clf.predict(X_test)  # predict vendor types for unknown data (outputs a list of predictions, one for each unknown capture file)
     # print("clf.predict:", v_predict)
 
-    for i in range(len(X_test)):
-        print("A_vendor:", v_test[i], "\tP_vendor:", v_predict[i], "\tA_device:", y_test[i])
+    # for i in range(len(X_test)):
+    #     print("A_vendor:", v_test[i], "\tP_vendor:", v_predict[i], "\tA_device:", y_test[i])
 
     for k in range(len(X_test)):
         all_tested_vendors.append(v_test[k])
