@@ -263,7 +263,7 @@ if __name__ == "__main__":
     # y_unknown = np.array(y_unknown)
     # print("len(X_unknown), len(v_unknown), len(y_unknown): ", len(X_unknown), len(y_unknown))
 
-    num_of_iter = 20
+    num_of_iter = 10
     same_to_other_ratio = 10
     dev_pred_accuracy = {}      # records prediction accuracy
     test_dev_counter = {}
@@ -271,7 +271,8 @@ if __name__ == "__main__":
     for j in range(num_of_iter):
         classifier_list = {}  # stores the computed classifiers
 
-        X_train, X_test, y_train, y_test = train_test_split(dataset_X, dataset_y, test_size=0.25)  # split dataset
+        X_train, X_test, y_train, y_test = train_test_split(dataset_X, dataset_y, stratify=dataset_y, test_size=0.25,
+                                                            random_state=42)  # split dataset
         X_unknown = X_test
         y_unknown = y_test
 
