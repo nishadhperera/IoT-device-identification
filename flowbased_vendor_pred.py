@@ -1,3 +1,5 @@
+from datetime import time
+
 from scapy.all import *
 import fnmatch
 import matplotlib.pyplot as plt
@@ -6,6 +8,7 @@ from scipy.fftpack import fft
 import bottleneck
 from random import sample
 import operator
+import collections
 from sklearn.model_selection import train_test_split
 from sklearn.ensemble import RandomForestClassifier
 from scipy.spatial import distance
@@ -191,21 +194,88 @@ def plot_list(list, title, x_label, y_label):
     plt.show()
 
 
-def plot_results(pred_accuracy, title, item_index, reverse, y_lable):
-    dataset = sorted(pred_accuracy.items(), key=operator.itemgetter(item_index),
+def plot_pred_accuracy(pred_accuracy, title, item_index, reverse, y_lable):
+    print("pred_accuracy:", pred_accuracy)
+    mean_accuracy = {}
+    stdDev_accuracy = {}
+    for key, value in pred_accuracy.items():
+        mean_accuracy[key] = np.mean(value)
+        stdDev_accuracy[key] = np.std(value)
+
+    print("mean_accuracy:", mean_accuracy)
+    print("stdDev_accuracy:", stdDev_accuracy)
+
+    dataset = sorted(mean_accuracy.items(), key=operator.itemgetter(item_index),
                      reverse=reverse)  # sort the dictionary with values
 
     # plot the results (device type vs accuracy of prediction)
-    device = list(zip(*dataset))[0]
+    device_list = list(zip(*dataset))[0]
     accuracy = list(zip(*dataset))[1]
 
-    x_pos = np.arange(len(device))
+    x_pos = np.arange(len(device_list))
 
-    plt.bar(x_pos, accuracy, align='edge', color='g')
-    plt.xticks(x_pos, device, rotation=315, ha='left')
+    std_dev = []
+    for dev in device_list:
+        std_dev.append(stdDev_accuracy[dev])
+
+    yerr_lower = np.zeros(len(accuracy))
+    yerr_upper = np.zeros(len(accuracy))
+    for i, (data) in enumerate(accuracy):
+        if (data+std_dev[i]) >= 1:
+            yerr_upper[i] = (1 - data)
+        else:
+            yerr_upper[i] = std_dev[i]
+        if (data-std_dev[i]) <= 0:
+            yerr_lower[i] = (data)
+        else:
+            yerr_lower[i] = std_dev[i]
+
+    print("device_list", device_list)
+    print("accuracy:", accuracy)
+    print("std_dev:", std_dev)
+    print("yerr_upper:", yerr_upper)
+    print("yerr_lower:", yerr_lower)
+
+    plt.bar(x_pos, accuracy, align='center', color='g')
+    plt.errorbar(x_pos, accuracy, yerr=[yerr_lower, yerr_upper], fmt='none', ecolor='k', capsize=3)
+    plt.xticks(x_pos, device_list, rotation=315, ha='left')
     plt.ylabel(y_lable)
     plt.title(title)
     plt.grid(linestyle='dotted')
+    plt.show()
+
+
+def plot_confusion_matrix(cm, classes, normalize, title='Confusion matrix', cmap=plt.cm.Blues):
+    """
+    This function prints and plots the confusion matrix.
+    Normalization can be applied by setting `normalize=True`.
+    """
+    if normalize:
+        cm = cm.astype('float') / cm.sum(axis=1)[:, np.newaxis]
+        print("Normalized confusion matrix")
+    else:
+        print('Confusion matrix, without normalization')
+
+    print(cm)
+
+    plt.imshow(cm, interpolation='nearest', cmap=cmap)
+    plt.title(title, y=-0.08)
+    plt.colorbar()
+    tick_marks = np.arange(len(classes))
+    plt.xticks(tick_marks, classes, rotation=45, ha='left')
+    plt.tick_params('x', labelbottom='off', labeltop='on')
+    plt.yticks(tick_marks, classes)
+
+    fmt = '.2f' if normalize else 'd'
+    thresh = cm.max() / 2.
+    for i, j in itertools.product(range(cm.shape[0]), range(cm.shape[1])):
+        plt.text(j, i, format(cm[i, j], fmt),
+                 horizontalalignment="center",
+                 color="white" if cm[i, j] > thresh else "black")
+
+    # plt.tight_layout()
+    plt.ylabel('True label')
+    plt.xlabel('Predicted label')
     plt.show()
 
 
@@ -590,18 +660,19 @@ def load_behavior_features(folder):
 
 # Location where the training dataset is available
 pcap_folder = "F:\\MSC\\Master Thesis\\Network traces\\captures_IoT_Sentinel_all\\captures_IoT-Sentinel_vendor_based"
+# pcap_folder = "F:\\MSC\\Master Thesis\\Network traces\\captures_IoT_Sentinel_all\\special_Vendor"
 
 try:
     dataset_X = pickle.load(open("Ven_behav_features.pickle", "rb"))
     dataset_v = pickle.load(open("Ven_behav_vendors.pickle", "rb"))
     dataset_y = pickle.load(open("Ven_behav_Devices.pickle", "rb"))
     print("Pickling successful behavioral features ......")
-except (OSError, IOError) as e:
+except (OSError, IOError, FileNotFoundError) as e:
     print("No pickle datasets are available....")
     dataset_X, dataset_v, dataset_y = load_behavior_features(pcap_folder)
-    pickle.dump(dataset_X, open("Ven_behav_features.pickle", "wb"))
-    pickle.dump(dataset_v, open("Ven_behav_vendors.pickle", "wb"))
-    pickle.dump(dataset_y, open("Ven_behav_Devices.pickle", "wb"))
+    # pickle.dump(dataset_X, open("Ven_behav_features.pickle", "wb"))
+    # pickle.dump(dataset_v, open("Ven_behav_vendors.pickle", "wb"))
+    # pickle.dump(dataset_y, open("Ven_behav_Devices.pickle", "wb"))
     feature_list = []
     device_list = []
     vendor_list = []
@@ -616,20 +687,22 @@ dataset_y = np.array(dataset_y)
 
 all_devices_set = set(dataset_y)
 
-num_of_iter = 1
-dev_pred_accuracy = {}          # records device prediction accuracy
-vendor_pred_accuracy = {}       # records vendor prediction accuracy
-test_dev_counter = {}
+num_of_iter = 10
+total_dev_pred_accuracy = {}          # records device prediction accuracy
+total_vendor_pred_accuracy = {}       # records vendor prediction accuracy
+all_test_dev_counter = {}
 all_tested_vendors = []
 all_predicted_vendors = []
 all_tested_devices = []
 all_predicted_devices = []
+iterationwise_vendor_pred_accuracy = {}
+iterationwise_device_pred_accuracy = {}
 
 for iter in range(num_of_iter):    # repeat for j times
 
-    X_train, X_test, v_train, v_test, y_train, y_test = train_test_split(dataset_X, dataset_v, dataset_y, test_size=0.25
+    X_train, X_test, v_train, v_test, y_train, y_test = train_test_split(dataset_X, dataset_v, dataset_y,
+                                                                         stratify=dataset_y, test_size=0.25
                                                                          , random_state=42)  # split the data sets
-
     data_VX = []
     data_VV = []
 
@@ -643,11 +716,11 @@ for iter in range(num_of_iter):    # repeat for j times
                 count += 1
         vendor_fp_counter[vendor] = count
 
-    print("Number of different vendors: ", len(vendor_set), vendor_set)
+    # print("Number of different vendors: ", len(vendor_set), vendor_set)
     key_min = min(vendor_fp_counter, key=vendor_fp_counter.get)  # find the vendor with minimum device fingerprints
     min_fp = vendor_fp_counter[key_min]  # number of minimum device fingerprints to be extracted from each vendor
-    print(vendor_fp_counter)
-    print("Min fp device: ", key_min, min_fp)
+    # print(vendor_fp_counter)
+    # print("Min fp device: ", key_min, min_fp)
 
     for vendor in vendor_set:
         temp_X = X_train[v_train == vendor]     # filter all fps for a particular vendor
@@ -659,7 +732,6 @@ for iter in range(num_of_iter):    # repeat for j times
     data_VX = np.array(data_VX)     # convert training data lists to numpy arrays
     data_VV = np.array(data_VV)
 
-
     clf = RandomForestClassifier(n_estimators=100)
     # clf = BaggingClassifier(ExtraTreesClassifier(n_estimators=50), max_samples=0.5, max_features=0.5)
     clf.fit(data_VX, data_VV)  # training the classifier for vendor detection
@@ -668,23 +740,26 @@ for iter in range(num_of_iter):    # repeat for j times
     # print("scores: ", scores)
 
     test_set = set(y_test)  # list of unique device labels
-    print("Number of test devices: ", len(test_set))
-    print("Test Device set: ", test_set)
+    # print("Number of test devices: ", len(test_set))
+    # print("Test Device set: ", test_set)
 
     for device in test_set:  # get the number of fingerprints for each device under predicted vendor (not all vendors)
         if iter == 0:
             count = 0
         else:
-            count = test_dev_counter[device]
+            count = all_test_dev_counter[device]
         for record in y_test:
             if record == device:
                 count += 1
-                test_dev_counter[device] = count
-    print("test_dev_counter", test_dev_counter)
+                all_test_dev_counter[device] = count
+    print("All test device counter", all_test_dev_counter)
 
-    v_predict = cross_val_predict(clf, X_test, v_test, cv=10)
-    print("cross_val_predict:", v_predict)
-    # v_predict = clf.predict(X_test)  # predict vendor types for unknown data (outputs a list of predictions, one for each unknown capture file)
+    Curr_test_dev_counter = collections.Counter(y_test)
+    print("Current test device counter", dict(Curr_test_dev_counter))
+
+    # v_predict = cross_val_predict(clf, X_test, v_test, cv=10)
+    # print("cross_val_predict:", v_predict)
+    v_predict = clf.predict(X_test)  # predict vendor types for unknown data (outputs a list of predictions, one for each unknown capture file)
     # print("clf.predict:", v_predict)
 
     # for i in range(len(X_test)):
@@ -694,15 +769,31 @@ for iter in range(num_of_iter):    # repeat for j times
         all_tested_vendors.append(v_test[k])
         all_predicted_vendors.append(v_predict[k])
         if v_test[k] == v_predict[k]:  # calculate the vendor prediction accuracy
-            if y_test[k] not in vendor_pred_accuracy:
-                vendor_pred_accuracy[y_test[k]] = 1
+            if y_test[k] not in total_vendor_pred_accuracy:
+                total_vendor_pred_accuracy[y_test[k]] = 1
             else:
-                vendor_pred_accuracy[y_test[k]] += 1
+                total_vendor_pred_accuracy[y_test[k]] += 1
+
+    for key, value in Curr_test_dev_counter.items():
+        if key not in total_vendor_pred_accuracy:
+            total_vendor_pred_accuracy[key] = 0
+
+    print("total_vendor_pred_accuracy:", total_vendor_pred_accuracy)
+
+    for key, value in total_vendor_pred_accuracy.items():
+        if key not in iterationwise_vendor_pred_accuracy:
+            iterationwise_vendor_pred_accuracy[key] = [value / Curr_test_dev_counter[key]]
+        else:
+            i = sum(iterationwise_vendor_pred_accuracy[key])
+            iterationwise_vendor_pred_accuracy[key].append(value / Curr_test_dev_counter[key] - i)
+    print("iterationwise_vendor_pred_accuracy", iterationwise_vendor_pred_accuracy)
+
+    # print("all_tested_vendors:", len(all_tested_vendors))
 
     for i, (pre_vendor) in enumerate(v_predict):    # loop for predicting the device for the unknown fp based on predicted vendor
         data_y = y_train[v_train == pre_vendor]
         device_set = set(data_y)  # list of unique device labels for predicted vendor
-        print("Device set: ", device_set)
+        # print("Device set: ", device_set)
         device_fp_counter = {}
         for device in device_set:  # get the number of fingerprints for each device under predicted vendor (not all vendors)
             count = 0
@@ -711,13 +802,13 @@ for iter in range(num_of_iter):    # repeat for j times
                     count += 1
                 device_fp_counter[device] = count
 
-        print("device_fp_counter: ", device_fp_counter)
+        # print("device_fp_counter: ", device_fp_counter)
         key_min = min(device_fp_counter,
                       key=device_fp_counter.get)  # find the device with minimum device fingerprints for the predicted vendor
         min_fp = device_fp_counter[
             key_min]  # number of minimum device fingerprints to be extracted from each device for the predicted vendor
 
-        print("Minimum record: ", key_min, min_fp)
+        # print("Minimum record: ", key_min, min_fp)
         data_DX = []
         data_DY = []
 
@@ -742,24 +833,49 @@ for iter in range(num_of_iter):    # repeat for j times
         all_tested_devices.append(y_test[i])
         all_predicted_devices.append(dev_predict[0])
         if y_test[i] == dev_predict[0]:      # calculate the device prediction accuracy
-            if y_test[i] not in dev_pred_accuracy:
-                dev_pred_accuracy[y_test[i]] = 1
+            if y_test[i] not in total_dev_pred_accuracy:
+                total_dev_pred_accuracy[y_test[i]] = 1
             else:
-                dev_pred_accuracy[y_test[i]] += 1
+                total_dev_pred_accuracy[y_test[i]] += 1
+
+    for key, value in Curr_test_dev_counter.items():
+        if key not in total_dev_pred_accuracy:
+            total_dev_pred_accuracy[key] = 0
+    print("total_dev_pred_accuracy:", total_dev_pred_accuracy)
+
+    for key, value in total_dev_pred_accuracy.items():
+        if key not in iterationwise_device_pred_accuracy:
+            iterationwise_device_pred_accuracy[key] = [value / Curr_test_dev_counter[key]]
+        else:
+            i = sum(iterationwise_device_pred_accuracy[key])
+            iterationwise_device_pred_accuracy[key].append(value / Curr_test_dev_counter[key] - i)
+    print("iterationwise_device_pred_accuracy:", iterationwise_device_pred_accuracy)
+
 
 for d in all_devices_set:       # check if there are devices which were not predicted correctly at least once
-    if d not in dev_pred_accuracy:
-        dev_pred_accuracy[d] = 0
+    if d not in total_dev_pred_accuracy:
+        total_dev_pred_accuracy[d] = 0
+    if d not in total_vendor_pred_accuracy:
+        total_vendor_pred_accuracy[d] = 0
 
-for key, value in vendor_pred_accuracy.items():
-    vendor_pred_accuracy[key] = value/(test_dev_counter[key])  # produce the accuracy as a fraction
+for key, value in total_vendor_pred_accuracy.items():
+    total_vendor_pred_accuracy[key] = value / (all_test_dev_counter[key])  # produce the accuracy as a fraction
 
-for key, value in dev_pred_accuracy.items():
-    dev_pred_accuracy[key] = value / (test_dev_counter[key])  # produce the accuracy as a fraction for device predictions
+for key, value in total_dev_pred_accuracy.items():
+    total_dev_pred_accuracy[key] = value / (all_test_dev_counter[key])  # produce the accuracy as a fraction for device predictions
 
-plot_results(vendor_pred_accuracy, "SC RF Vendor Prediction - Flowbased analysis", 1, True, "Accuracy")
-plot_results(dev_pred_accuracy, "SC RF Device Prediction - Flowbased analysis", 1, True, "Accuracy")
-print(classification_report(all_tested_vendors, all_predicted_vendors))
-print(confusion_matrix(all_tested_vendors, all_predicted_vendors))
+
+# plot_pred_accuracy(total_vendor_pred_accuracy, "SC RF Vendor Prediction - Flowbased analysis", 1, True, "Accuracy")
+plot_pred_accuracy(iterationwise_vendor_pred_accuracy, "SC RF Vendor Prediction - Flowbased analysis", 1, True, "Accuracy")
+# plot_pred_accuracy(total_dev_pred_accuracy, "SC RF Device Prediction - Flowbased analysis", 1, True, "Accuracy")
+plot_pred_accuracy(iterationwise_device_pred_accuracy, "SC RF Device Prediction - Flowbased analysis", 1, True, "Accuracy")
+class_lbls = list(set(all_tested_vendors))
+class_lbls = ['Ednet_V', 'Hue_V', 'HomeMaticPlug_V', 'Withings_V', 'Edimax_V', 'TP-Link_V',
+              'Aria_V', 'Lightify_V', 'MAXGateway_V', 'WeMo_V', 'D-Link_V', 'SmarterCoffee_V', 'iKettle2_V']
+print(class_lbls)
+print(classification_report(all_tested_vendors, all_predicted_vendors, class_lbls))
+cnf_matrix = confusion_matrix(all_tested_vendors, all_predicted_vendors, class_lbls)
+print(cnf_matrix)
+plot_confusion_matrix(cnf_matrix, class_lbls, True, 'Confusion matrix, with normalization')
 print(classification_report(all_tested_devices, all_predicted_devices))
 print(confusion_matrix(all_tested_devices, all_predicted_devices))

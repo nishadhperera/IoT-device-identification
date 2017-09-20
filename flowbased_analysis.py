@@ -6,6 +6,7 @@ from scipy.fftpack import fft
 import bottleneck
 from random import sample
 import operator
+import collections
 from sklearn.model_selection import train_test_split
 from sklearn.ensemble import RandomForestClassifier
 from scipy.spatial import distance
@@ -198,6 +199,57 @@ def plot_results(pred_accuracy, title, item_index, reverse, y_lable):
 
     plt.bar(x_pos, accuracy, align='edge', color='g')
     plt.xticks(x_pos, device, rotation=315, ha='left')
+    plt.ylabel(y_lable)
+    plt.title(title)
+    plt.grid(linestyle='dotted')
+    plt.show()
+
+
+def plot_pred_accuracy(pred_accuracy, title, item_index, reverse, y_lable):
+    print("pred_accuracy:", pred_accuracy)
+    mean_accuracy = {}
+    stdDev_accuracy = {}
+    for key, value in pred_accuracy.items():
+        mean_accuracy[key] = np.mean(value)
+        stdDev_accuracy[key] = np.std(value)
+
+    print("mean_accuracy:", mean_accuracy)
+    print("stdDev_accuracy:", stdDev_accuracy)
+
+    dataset = sorted(mean_accuracy.items(), key=operator.itemgetter(item_index),
+                     reverse=reverse)  # sort the dictionary with values
+
+    # plot the results (device type vs accuracy of prediction)
+    device_list = list(zip(*dataset))[0]
+    accuracy = list(zip(*dataset))[1]
+
+    x_pos = np.arange(len(device_list))
+
+    std_dev = []
+    for dev in device_list:
+        std_dev.append(stdDev_accuracy[dev])
+
+    yerr_lower = np.zeros(len(accuracy))
+    yerr_upper = np.zeros(len(accuracy))
+    for i, (data) in enumerate(accuracy):
+        if (data+std_dev[i]) >= 1:
+            yerr_upper[i] = (1 - data)
+        else:
+            yerr_upper[i] = std_dev[i]
+        if (data-std_dev[i]) <= 0:
+            yerr_lower[i] = (data)
+        else:
+            yerr_lower[i] = std_dev[i]
+
+    print("device_list", device_list)
+    print("accuracy:", accuracy)
+    print("std_dev:", std_dev)
+    print("yerr_upper:", yerr_upper)
+    print("yerr_lower:", yerr_lower)
+
+    plt.bar(x_pos, accuracy, align='center', color='g')
+    plt.errorbar(x_pos, accuracy, yerr=[yerr_lower, yerr_upper], fmt='none', ecolor='k', capsize=3)
+    plt.xticks(x_pos, device_list, rotation=315, ha='left')
     plt.ylabel(y_lable)
     plt.title(title)
     plt.grid(linestyle='dotted')
@@ -636,6 +688,7 @@ def load_behavior_features(folder):
 
 # Location where the training dataset is available
 pcap_folder = "F:\\MSC\\Master Thesis\\Network traces\\captures_IoT_Sentinel_all\\captures_IoT-Sentinel"
+# pcap_folder = "F:\\MSC\\Master Thesis\\Network traces\\captures_IoT_Sentinel_all\\special"
 # pcap_folder = "F:\\MSC\\Master Thesis\\Network traces\\captures_IoT_Sentinel\\Test"
 
 try:
@@ -704,40 +757,20 @@ print(data_DY)
 for i, (data) in enumerate(data_DX):
     print(len(data), data_DY[i])
 
-
-
-# X_train, X_test, y_train, y_test = train_test_split(data_DX, data_DY, test_size=0.2, random_state=0)
-# X_unknown = X_test
-# y_unknown = y_test
-# print("Splitted y-Unknown: ", y_unknown)
-#
-# test_set = set(y_unknown)     # list of unique device labels
-# print("Number of test devices: ", len(test_set))
-# print("Test Device set: ", test_set)
-#
-#
-# for device in test_set:  # get the number of fingerprints for each device under predicted vendor (not all vendors)
-#     count = 0
-#     for record in y_unknown:
-#         if record == device:
-#             count += 1
-#             test_dev_counter[device] = count
-
-num_of_iter = 1
-dev_pred_accuracy = {}      # records prediction accuracy
+num_of_iter = 10
+total_dev_pred_accuracy = {}      # records prediction accuracy
 f_importance = {}            # records the feature importance in classification
 all_tested = []
 all_predicted = []
 test_dev_counter = {}
-
+iterationwise_device_pred_accuracy = {}
 
 for iter in range(num_of_iter):
-    print("Prediction iteration ", iter)
 
-    X_train, X_test, y_train, y_test = train_test_split(data_DX, data_DY, test_size=0.25, random_state=42)
+    X_train, X_test, y_train, y_test = train_test_split(data_DX, data_DY, stratify=data_DY, test_size=0.25, random_state=42)
     X_unknown = X_test
     y_unknown = y_test
-    print("Splitted y-Unknown: ", y_unknown)
+    # print("Splitted y-Unknown: ", y_unknown)
 
     test_set = set(y_unknown)  # list of unique device labels
     print("Number of test devices: ", len(test_set))
@@ -752,6 +785,9 @@ for iter in range(num_of_iter):
             if record == device:
                 count += 1
                 test_dev_counter[device] = count
+
+    Curr_test_dev_counter = collections.Counter(y_test)
+    print("Current test device counter", dict(Curr_test_dev_counter))
 
     clf = RandomForestClassifier(n_estimators=100)
     clf.fit(X_train, y_train)
@@ -771,28 +807,42 @@ for iter in range(num_of_iter):
         all_tested.append(y_unknown[i])
         all_predicted.append(y_predict[i])
         if y_unknown[i] == y_predict[i]:
-            if y_unknown[i] not in dev_pred_accuracy:
-                dev_pred_accuracy[y_unknown[i]] = 1
+            if y_unknown[i] not in total_dev_pred_accuracy:
+                total_dev_pred_accuracy[y_unknown[i]] = 1
             else:
-                dev_pred_accuracy[y_unknown[i]] += 1
+                total_dev_pred_accuracy[y_unknown[i]] += 1
 
-print("test_dev_counter: ", test_dev_counter)
+    for key, value in Curr_test_dev_counter.items():
+        if key not in total_dev_pred_accuracy:
+            total_dev_pred_accuracy[key] = 0
+    print("total_dev_pred_accuracy:", total_dev_pred_accuracy)
+
+    for key, value in total_dev_pred_accuracy.items():
+        if key not in iterationwise_device_pred_accuracy:
+            iterationwise_device_pred_accuracy[key] = [value / Curr_test_dev_counter[key]]
+        else:
+            i = sum(iterationwise_device_pred_accuracy[key])
+            iterationwise_device_pred_accuracy[key].append(value / Curr_test_dev_counter[key] - i)
+    print("iterationwise_device_pred_accuracy:", iterationwise_device_pred_accuracy)
+
+print("all_test_dev_counter: ", test_dev_counter)
 
 for d in device_set:       # check if there are devices which were not predicted correctly at least once
-    if d not in dev_pred_accuracy:
-        dev_pred_accuracy[d] = 0
+    if d not in total_dev_pred_accuracy:
+        total_dev_pred_accuracy[d] = 0
 
-for key, value in dev_pred_accuracy.items():
-    dev_pred_accuracy[key] = value/(test_dev_counter[key])  # produce the accuracy as a fraction
+for key, value in total_dev_pred_accuracy.items():
+    total_dev_pred_accuracy[key] = value / (test_dev_counter[key])  # produce the accuracy as a fraction
 
 for key, value in f_importance.items():
     f_importance[key] = value/(num_of_iter)  # produce the accuracy as a fraction
 
 print(len(all_tested))
 print(len(all_predicted))
-print("dev_pred_accuracy: ", dev_pred_accuracy)
+print("total_dev_pred_accuracy: ", total_dev_pred_accuracy)
 
-plot_results(dev_pred_accuracy, "Single classifier RF - Flowbased analysis", 1, True, "Accuracy")
+# plot_results(total_dev_pred_accuracy, "Single classifier RF - Flowbased analysis", 1, True, "Accuracy")
+plot_pred_accuracy(iterationwise_device_pred_accuracy, "Single classifier RF - Flowbased analysis", 1, True, "Accuracy")
 plot_results(f_importance, "Feature importance RF - Flowbased analysis", 1, True, "Importance")
 print(classification_report(all_tested, all_predicted))
 print(confusion_matrix(all_tested, all_predicted))
