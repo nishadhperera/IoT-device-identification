@@ -206,3 +206,11 @@ def get_rawdata_feature(packet):
         return 1
     except IndexError:
         return 0
+
+
+def get_payload_feature(packet):
+    try:
+        x = len(packet["Raw"])
+    except (IndexError, AttributeError) as e:
+        x = 0
+    return x
