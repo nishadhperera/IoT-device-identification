@@ -1,7 +1,10 @@
+# This program contains methods to extract features from a packet
+# Condition: packets are extracted using scapy rdpcap method
+# Author: Nishadh Aluthge
 from _csv import Error
 
 
-def get_length_feature(packet):    # Packet length
+def get_length_feature(packet):    # Extracts Packet length
     try:
         a = len(packet)
         return a
@@ -200,7 +203,7 @@ def get_dstpc_feature(packet, tl_pro):
         return 0
 
 
-def get_rawdata_feature(packet):
+def get_rawdata_feature(packet):        # Analyse for the presence of raw data in the payload
     try:
         x = packet["Raw"]
         return 1
@@ -208,7 +211,7 @@ def get_rawdata_feature(packet):
         return 0
 
 
-def get_payload_feature(packet):
+def get_payload_feature(packet):        # calculates the amount of rawdata present in the payload
     try:
         x = len(packet["Raw"])
     except (IndexError, AttributeError) as e:

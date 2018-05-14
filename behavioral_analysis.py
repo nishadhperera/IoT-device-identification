@@ -41,7 +41,7 @@ def packet_filter_generator(pcap_class_gen, filter_con):
     global source_mac_add
 
     for pcapfile, device_name in pcap_class_gen:
-        capture = rdpcap(pcapfile)
+        capture = rdpcap(pcapfile)          # Read the trace file using scapy rdpcap module
         mac_address_list = {}
         src_mac_address_list = {}
 

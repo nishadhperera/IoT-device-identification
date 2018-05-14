@@ -1,5 +1,7 @@
+# This program contains methods to extract features from a packet
+# Condition: packets are extracted using pyShark
+# Author: Nishadh Aluthge
 from _csv import Error
-import pyshark
 
 
 def get_length_feature(packet):    # Packet length
@@ -9,6 +11,7 @@ def get_length_feature(packet):    # Packet length
     except Error:
         return 0
 
+
 def get_LLC_feature(packet):    # check for LLC layer header
     try:
         x = packet["LLC"]
@@ -16,12 +19,14 @@ def get_LLC_feature(packet):    # check for LLC layer header
     except KeyError:
         return 0
 
+
 def get_padding_feature(packet):   # check for padding layer header
     try:
         x = packet["ETH"].padding
         return 1
     except AttributeError:
         return 0
+
 
 def get_arp_feature(packet):
     try:
@@ -32,6 +37,7 @@ def get_arp_feature(packet):
     except AttributeError:
         return 0
 
+
 def get_ip_feature(packet):
     try:
         if packet['ETH'].type == "0x00000800":  # IP feature detected
@@ -41,6 +47,7 @@ def get_ip_feature(packet):
     except AttributeError:
         return 0, "None"
 
+
 def get_eapol_feature(packet):
     try:
         if packet['ETH'].type == "0x0000888e":  # EAPoL feature detected
@@ -49,6 +56,7 @@ def get_eapol_feature(packet):
             return 0
     except AttributeError:
         return 0
+
 
 def get_icmp_feature(packet):
     try:
@@ -61,6 +69,7 @@ def get_icmp_feature(packet):
     except Error:
         return 0, 0
 
+
 def get_tcpudp_feature(packet):
     try:
         if packet['ip'].proto == "6":   # TCP feature detected
@@ -71,6 +80,7 @@ def get_tcpudp_feature(packet):
             return 0, 0, "None"
     except Error:
         return 0, 0, "None"
+
 
 def get_r_alert_feature(packet):
     try:
@@ -83,6 +93,7 @@ def get_r_alert_feature(packet):
             return 0
     except Error:
         return 0
+
 
 def get_dest_ip_counter_feature(packet, dest_ip_set, dst_ip_counter):
     if packet['ip'].dst not in dest_ip_set:  # Counting the Destination IP counter value
@@ -102,6 +113,7 @@ def get_dns_feature(packet, tl_pro):
     except Error:
         return 0
 
+
 def get_bootp_dhcp_feature(packet, tl_pro):
     try:
         if packet['' + tl_pro + ''].srcport == "67" or packet['' + tl_pro + ''].srcport == "68":  # BOOTP, DHCP feature detected
@@ -110,6 +122,7 @@ def get_bootp_dhcp_feature(packet, tl_pro):
             return 0, 0
     except Error:
         return 0, 0
+
 
 def get_http_feature(packet, tl_pro):
     try:
@@ -120,6 +133,7 @@ def get_http_feature(packet, tl_pro):
     except Error:
         return 0
 
+
 def get_ntp_feature(packet, tl_pro):
     try:
         if packet['' + tl_pro + ''].srcport == "123" or packet['' + tl_pro + ''].dstport == "123":    # NTP feature detected
@@ -128,6 +142,7 @@ def get_ntp_feature(packet, tl_pro):
             return 0
     except Error:
         return 0
+
 
 def get_https_feature(packet, tl_pro):
     try:
@@ -138,6 +153,7 @@ def get_https_feature(packet, tl_pro):
     except Error:
         return 0
 
+
 def get_ssdp_feature(packet, tl_pro):
     try:
         if packet['' + tl_pro + ''].srcport == "1900":    # SSDP feature detected
@@ -147,6 +163,7 @@ def get_ssdp_feature(packet, tl_pro):
     except Error:
         return 0
 
+
 def get_mdns_feature(packet, tl_pro):
     try:
         if packet['' + tl_pro + ''].srcport == "5353":    # MDNS feature detected
@@ -155,6 +172,7 @@ def get_mdns_feature(packet, tl_pro):
             return 0
     except Error:
         return 0
+
 
 def get_srcpc_feature(packet, tl_pro):
     try:
@@ -168,6 +186,7 @@ def get_srcpc_feature(packet, tl_pro):
             return 0
     except Error:
         return 0
+
 
 def get_dstpc_feature(packet, tl_pro):
     try:
