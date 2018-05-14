@@ -221,7 +221,7 @@ def plot_results(pred_accuracy, item_index, reverse):
     dataset = sorted(pred_accuracy.items(), key=operator.itemgetter(item_index),
                      reverse=reverse)  # sort the dictionary with values
 
-    # plot the results (device type vs accuracy of prediction)
+    # plot the results (device type vs accuracy of pred_vector)
     device = list(zip(*dataset))[0]
     accuracy = list(zip(*dataset))[1]
 
@@ -291,10 +291,10 @@ data_DY = np.array(data_DY)
 X_train, X_test, y_train, y_test = train_test_split(data_DX , data_DY, test_size=0, random_state=0)     # split the dataset
 
 num_of_iter = 20
-dev_pred_accuracy = {}      # records prediction accuracy
+dev_pred_accuracy = {}      # records pred_vector accuracy
 
 for iter in range(num_of_iter):
-    print("Prediction iteration ", iter)
+    print("Prediction inner_iter ", iter)
     clf = svm.SVC(kernel='linear', C=1).fit(X_train, y_train)       # train the SVC classifier
 
     y_predict = clf.predict(X_unknown)

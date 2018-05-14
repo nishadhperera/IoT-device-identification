@@ -17,7 +17,9 @@ from sklearn.metrics import classification_report
 from sklearn.model_selection import cross_val_score
 from sklearn.model_selection import cross_val_predict
 from sklearn.ensemble import ExtraTreesClassifier
+from sklearn.metrics import precision_recall_fscore_support
 from sklearn.ensemble import BaggingClassifier
+from sklearn.feature_selection import SelectKBest, chi2
 
 import features_scapy as fe
 
@@ -45,15 +47,17 @@ dst_port_cls = []
 prev_EucD_packet = ""
 Euc_distances = []
 Euc_distance_list = []
+rate_start_time = 0
+pkt_rate = []
+pkt_rate_list = []
 source_mac_add = ""
 new_device = False
 
-feature_list = []       # stores the features
+feature_list = []       # stores the feature values
+feature_name_list = []  # stores the feature names
 device_list = []        # stores the device names
 vendor_list = []        # store the vendor names
 
-import IoTSentinel_rf
-IoTobject = IoTSentinel_rf
 
 def pcap_class_generator(pcap_folder):
     global IA_times
@@ -66,7 +70,6 @@ def pcap_class_generator(pcap_folder):
     global IP_header_len_list
     global prev_packet
     global new_device
-    global pkt_counter
     global pkt_count_list
     global pkt_direction
     global pkt_direction_list
@@ -81,6 +84,9 @@ def pcap_class_generator(pcap_folder):
     global prev_EucD_packet
     global Euc_distances
     global Euc_distance_list
+    global pkt_rate
+    global pkt_counter
+    global rate_start_time
 
     for path, dir_list, file_list in os.walk(pcap_folder):
 
@@ -101,8 +107,14 @@ def pcap_class_generator(pcap_folder):
                 IP_header_len_list.append(IP_header_len)
                 IP_header_len = []
             if pkt_counter > 0:
-                pkt_count_list.append(pkt_counter)
+                pkt_rate.append(pkt_counter)
+                pkt_rate_list.append(pkt_rate)
+                pkt_rate = []
                 pkt_counter = 0
+                rate_start_time = 0
+            # if pkt_counter > 0:
+            #     pkt_count_list.append(pkt_counter)
+            #     pkt_counter = 0
             if pkt_direction:
                 pkt_direction_list.append(pkt_direction)
                 pkt_direction = []
@@ -120,11 +132,6 @@ def pcap_class_generator(pcap_folder):
                 Euc_distance_list.append(Euc_distances)
                 Euc_distances = []
                 prev_EucD_packet = ""
-            IoTobject.prev_class = ""
-            IoTobject.concat_feature = []
-            IoTobject.feature_set = []
-            IoTobject.dest_ip_set.clear()
-            IoTobject.dst_ip_counter = 0
             yield os.path.join(path, name), os.path.basename(os.path.dirname(path)), os.path.basename(os.path.normpath(path))
 
 
@@ -135,8 +142,6 @@ def packet_filter_generator(pcap_class_gen, filter_con):
         capture = rdpcap(pcapfile)
         mac_address_list = {}
         src_mac_address_list = {}
-        IoTobject.capture_len = 0
-        IoTobject.count = 0
 
         for i, (packet) in enumerate(capture):
             if packet[0].src not in mac_address_list:  # Counting the source MAC counter value
@@ -159,7 +164,6 @@ def packet_filter_generator(pcap_class_gen, filter_con):
             if v == highest:
                 if k in src_mac_address_list:
                     source_mac_add = k
-        IoTobject.capture_len = src_mac_address_list[source_mac_add]
         print("Source MAC ", source_mac_add)
 
         for i, (packet) in enumerate(capture):
@@ -194,13 +198,35 @@ def plot_list(list, title, x_label, y_label):
     plt.show()
 
 
+def plot_results(list_of_items, title, item_index, reverse, y_lable):
+    dataset = sorted(list_of_items.items(), key=operator.itemgetter(item_index),
+                     reverse=reverse)  # sort the dictionary with values
+
+    # plot the results (device type vs accuracy of pred_vector)
+    device = list(zip(*dataset))[0]
+    accuracy = list(zip(*dataset))[1]
+
+    x_pos = np.arange(len(device))
+
+    plt.bar(x_pos, accuracy, align='edge', color='g')
+    plt.xticks(x_pos, device, rotation=315, ha='left')
+    plt.ylabel(y_lable)
+    plt.title(title)
+    plt.grid(linestyle='dotted')
+    plt.show()
+
+
 def plot_pred_accuracy(pred_accuracy, title, item_index, reverse, y_lable):
     print("pred_accuracy:", pred_accuracy)
     mean_accuracy = {}
     stdDev_accuracy = {}
+    skipped_devices_list = ['Aria', 'HomeMaticPlug', 'Withings', 'MAXGateway', 'HueBridge', 'EdnetGateway',
+                            'HueSwitch', 'WeMoInsightSwitch', 'WeMoLink', 'D-LinkHomeHub', 'D-LinkDoorSensor',
+                            'D-LinkDayCam']
     for key, value in pred_accuracy.items():
-        mean_accuracy[key] = np.mean(value)
-        stdDev_accuracy[key] = np.std(value)
+        if not key in skipped_devices_list:
+            mean_accuracy[key] = np.mean(value)
+            stdDev_accuracy[key] = np.std(value)
 
     print("mean_accuracy:", mean_accuracy)
     print("stdDev_accuracy:", stdDev_accuracy)
@@ -208,7 +234,7 @@ def plot_pred_accuracy(pred_accuracy, title, item_index, reverse, y_lable):
     dataset = sorted(mean_accuracy.items(), key=operator.itemgetter(item_index),
                      reverse=reverse)  # sort the dictionary with values
 
-    # plot the results (device type vs accuracy of prediction)
+    # plot the results (device type vs accuracy of pred_vector)
     device_list = list(zip(*dataset))[0]
     accuracy = list(zip(*dataset))[1]
 
@@ -242,6 +268,51 @@ def plot_pred_accuracy(pred_accuracy, title, item_index, reverse, y_lable):
     plt.ylabel(y_lable)
     plt.title(title)
     plt.grid(linestyle='dotted')
+    plt.show()
+
+
+def plot_multipleBars(dictionary_1, array_1, title, item_index, reverse, y_lable):
+    mean_accuracy = {}
+    stdDev_accuracy = {}
+    for key, value in dictionary_1.items():
+        mean_accuracy[key] = np.mean(value)
+        stdDev_accuracy[key] = np.std(value)
+
+    N = 5
+    men_means = (20, 35, 30, 35, 27)
+    men_std = (2, 3, 4, 1, 2)
+
+    ind = np.arange(N)  # the x locations for the groups
+    width = 0.35  # the width of the bars
+
+    fig, ax = plt.subplots()
+    rects1 = ax.bar(ind, men_means, width, color='r', yerr=men_std)
+
+    women_means = (25, 32, 34, 20, 25)
+    women_std = (3, 5, 2, 3, 3)
+    rects2 = ax.bar(ind + width, women_means, width, color='y', yerr=women_std)
+
+    # add some text for labels, title and axes ticks
+    ax.set_ylabel('Scores')
+    ax.set_title('Scores by group and gender')
+    ax.set_xticks(ind + width / 2)
+    ax.set_xticklabels(('G1', 'G2', 'G3', 'G4', 'G5'))
+
+    ax.legend((rects1[0], rects2[0]), ('Men', 'Women'))
+
+    # def autolabel(rects):
+    #     """
+    #     Attach a text label above each bar displaying its height
+    #     """
+    #     for rect in rects:
+    #         height = rect.get_height()
+    #         ax.text(rect.get_x() + rect.get_width() / 2., 1.05 * height,
+    #                 '%d' % int(height),
+    #                 ha='center', va='bottom')
+
+    # autolabel(rects1)
+    # autolabel(rects2)
+
     plt.show()
 
 
@@ -304,7 +375,8 @@ def calc_IA_features(packet_list, filter_con):
         if prev_packet == "":
             pass
         else:
-            IA_times.append(packet.time - prev_packet.time)
+            time_gap = packet.time - prev_packet.time
+            IA_times.append(abs(time_gap))
         prev_packet = packet
         yield packet, vendor_, dev_name
 
@@ -335,6 +407,16 @@ def calc_IA_features(packet_list, filter_con):
         feature_list[i].append(var_IAT)
         feature_list[i].append(iqr_IAT)
 
+        if i == 0:
+            feature_name_list.append("Packet Inter Arrival time - minimum (" + filter_con + ")")
+            feature_name_list.append("Packet Inter Arrival time - maximum (" + filter_con + ")")
+            feature_name_list.append("Packet Inter Arrival time - first quartile (" + filter_con + ")")
+            feature_name_list.append("Packet Inter Arrival time - median (" + filter_con + ")")
+            feature_name_list.append("Packet Inter Arrival time - mean (" + filter_con + ")")
+            feature_name_list.append("Packet Inter Arrival time - third quartile (" + filter_con + ")")
+            feature_name_list.append("Packet Inter Arrival time - variance (" + filter_con + ")")
+            feature_name_list.append("Packet Inter Arrival time - inter quartile range (" + filter_con + ")")
+
         # FFT calculation for inter-arrival times
         data = np.array(data)
         min_len = min(len(data), 10)        # get 10 fft components or the minimum length of input data to fft
@@ -348,8 +430,10 @@ def calc_IA_features(packet_list, filter_con):
             sorted_fft = np.append(sorted_fft, np.zeros(10 - len(sorted_fft)))
 
         print(i, "FFT features: ", filter_con, sorted_fft)
-        for fft_val in sorted_fft:          # append fft values to feature list
+        for k, (fft_val) in enumerate (sorted_fft):          # append fft values to feature list
             feature_list[i].append(fft_val)
+            if i == 0:
+                feature_name_list.append("Packet Inter Arrival time - FFT #" + str(k) + " (" + filter_con + ")")
 
 
     # plot_list(IA_times_list, "Inter arrival time variation with the packet count (%s)" % filter_con, "Packet count",
@@ -392,18 +476,28 @@ def calc_ethsize_features(packet_list, filter_con):
         feature_list[i].append(var_ethlen)
         feature_list[i].append(iqr_ethlen)
 
+        if i == 0:
+            feature_name_list.append("Ethernet packet size - minimum (" + filter_con + ")")
+            feature_name_list.append("Ethernet packet size - maximum (" + filter_con + ")")
+            feature_name_list.append("Ethernet packet size - first quartile (" + filter_con + ")")
+            feature_name_list.append("Ethernet packet size - median (" + filter_con + ")")
+            feature_name_list.append("Ethernet packet size - mean (" + filter_con + ")")
+            feature_name_list.append("Ethernet packet size - third quartile (" + filter_con + ")")
+            feature_name_list.append("Ethernet packet size - variance (" + filter_con + ")")
+            feature_name_list.append("Ethernet packet size - inter quartile range (" + filter_con + ")")
+
     # plot_list(ether_len_list, "Ethernet packet size variation pattern with number of packets (%s)" % filter_con, "Packet count",
     #           "Ethernet packet size")
 
 
-def calc_IP_size_features(packet_list, filter_con):
+def calc_IP_payload_size_features(packet_list, filter_con):
     global IP_len
     global IP_len_list
     IP_len_list = []
 
     for i, (packet, vendor_, dev_name) in enumerate(packet_list):
         try:
-            IP_len.append(packet["IP"].len)
+            IP_len.append(packet["IP"].len - packet["IP"].ihl)
         except IndexError:
             pass
         yield packet, vendor_, dev_name
@@ -421,7 +515,7 @@ def calc_IP_size_features(packet_list, filter_con):
         var_ip_len = np.var(data)  # variance of IP packet size
         iqr_ip_len = q3_ip_len - q1_ip_len  # IQR of IP packet size
 
-        print(i, "IP packet size features: ", min_ip_len, max_ip_len, q1_ip_len, median_ip_len, mean_ip_len, q3_ip_len, var_ip_len, iqr_ip_len)
+        print(i, "IP payload size features: ", min_ip_len, max_ip_len, q1_ip_len, median_ip_len, mean_ip_len, q3_ip_len, var_ip_len, iqr_ip_len)
 
         feature_list[i].append(min_ip_len)
         feature_list[i].append(max_ip_len)
@@ -431,6 +525,16 @@ def calc_IP_size_features(packet_list, filter_con):
         feature_list[i].append(q3_ip_len)
         feature_list[i].append(var_ip_len)
         feature_list[i].append(iqr_ip_len)
+
+        if i == 0:
+            feature_name_list.append("IP payload size - minimum (" + filter_con + ")")
+            feature_name_list.append("IP payload size - maximum (" + filter_con + ")")
+            feature_name_list.append("IP payload size - first quartile (" + filter_con + ")")
+            feature_name_list.append("IP payload size - median (" + filter_con + ")")
+            feature_name_list.append("IP payload size - mean (" + filter_con + ")")
+            feature_name_list.append("IP payload size - third quartile (" + filter_con + ")")
+            feature_name_list.append("IP payload size - variance (" + filter_con + ")")
+            feature_name_list.append("IP payload size - inter quartile range (" + filter_con + ")")
 
     # plot_list(IP_len_list, "IP packet size variation pattern with number of packets (%s)" % filter_con, "Packet count",
     #           "IP packet size")
@@ -472,6 +576,16 @@ def calc_IP_header_size_features(packet_list, filter_con):
         feature_list[i].append(var_iph_len)
         feature_list[i].append(iqr_iph_len)
 
+        if i == 0:
+            feature_name_list.append("IP packet header size - minimum (" + filter_con + ")")
+            feature_name_list.append("IP packet header size - maximum (" + filter_con + ")")
+            feature_name_list.append("IP packet header size - first quartile (" + filter_con + ")")
+            feature_name_list.append("IP packet header size - median (" + filter_con + ")")
+            feature_name_list.append("IP packet header size - mean (" + filter_con + ")")
+            feature_name_list.append("IP packet header size - third quartile (" + filter_con + ")")
+            feature_name_list.append("IP packet header size - variance (" + filter_con + ")")
+            feature_name_list.append("IP packet header size - inter quartile range (" + filter_con + ")")
+
     # plot_list(IP_header_len_list, "IP packet header size variation pattern with number of packets (%s)" % filter_con, "Packet count",
     #           "IP packet header size")
 
@@ -488,10 +602,59 @@ def calc_num_of_pkts(packet_list, filter_con):
 
     pkt_count_list.append(pkt_counter)
     pkt_counter = 0
-    print("length of Packet counts list: ", len(pkt_count_list))
+    print("length of Packet count list: ", len(pkt_count_list))
 
     for i, (data) in enumerate(pkt_count_list):
+        print(i, "Number of packets: ", data)
         feature_list[i].append(data)
+        if i == 0:
+            feature_name_list.append("Total number of packets (" + filter_con + ")")
+
+
+def calc_pkt_rate(packet_list, filter_con):
+    global pkt_counter
+    global rate_start_time
+    global rate_end_time
+    global pkt_rate
+    global pkt_rate_list
+
+    pkt_rate = []
+    pkt_rate_list = []
+
+    for i, (packet, vendor_, dev_name) in enumerate(packet_list):
+        if rate_start_time == 0:
+            rate_start_time = packet.time
+        try:
+            packet_not_added = True
+            while packet_not_added:
+                if packet.time < (rate_start_time + (len(pkt_rate) + 1)):
+                    pkt_counter += 1
+                    packet_not_added = False
+                else:
+                    pkt_rate.append(pkt_counter)
+                    pkt_counter = 0
+        except IndexError:
+            pass
+        yield packet, vendor_, dev_name
+
+    pkt_rate.append(pkt_counter)
+    pkt_rate_list.append(pkt_rate)
+    pkt_rate = []
+    pkt_counter = 0
+    rate_start_time = 0
+    rate_end_time = 0
+
+    for i, (data) in enumerate(pkt_rate_list):
+        concat_pkt_rate = ""
+        for j in range(12):
+            if j < len(data):
+                concat_pkt_rate += str(data[j])
+            else:
+                concat_pkt_rate += str(0)
+        print(i, "Packet rate vector: ", concat_pkt_rate)
+        feature_list[i].append(concat_pkt_rate)
+        if i == 0:
+            feature_name_list.append("Packet rate vector (" + filter_con + ")")
 
 
 def calc_pkt_directions(packet_list, filter_con):
@@ -515,11 +678,22 @@ def calc_pkt_directions(packet_list, filter_con):
     pkt_direction_list.append(pkt_direction)
 
     for i, (data) in enumerate(pkt_direction_list):
+        concat_pkt_dir = ""
         for j in range(12):
             if j < len(data):
-                feature_list[i].append(data[j])
+                concat_pkt_dir = concat_pkt_dir + str(data[j])
+                # ethernet_len_list[i].append(data[j])
+                # if i == 0:
+                #     feature_name_list.append("Packet direction #" + str(j) + " (" + filter_con + ")")
             else:
-                feature_list[i].append(2)
+                concat_pkt_dir = concat_pkt_dir + str(2)
+                # ethernet_len_list[i].append(2)
+                # if i == 0:
+                #     feature_name_list.append("Packet direction #" + str(j) + " (" + filter_con + ")")
+        print(i, "Packet direction vector: ", concat_pkt_dir)
+        feature_list[i].append(concat_pkt_dir)
+        if i == 0:
+            feature_name_list.append("Packet direction vector (" + filter_con + ")")
 
 
 def calc_IP_destinations(packet_list, filter_con):
@@ -548,11 +722,18 @@ def calc_IP_destinations(packet_list, filter_con):
     print("dest_ip_counter_list: ", len(dest_ip_counter_list), dest_ip_counter_list)
 
     for i, (data) in enumerate(dest_ip_counter_list):
+        concat_ip_destinations = ""
         for j in range(12):
             if j < len(data):
-                feature_list[i].append(data[j])
+                concat_ip_destinations += str(data[j])
+                # ethernet_len_list[i].append(data[j])
             else:
-                feature_list[i].append(0)
+                concat_ip_destinations += str(0)
+                # ethernet_len_list[i].append(0)
+        print(i, "Number of Ip destinations: ", concat_ip_destinations)
+        feature_list[i].append(concat_ip_destinations)
+        if i == 0:
+            feature_name_list.append("Number of IP destinations vector(" + filter_con + ")")
 
 
 def calc_port_class(packet_list, filter_con):
@@ -580,18 +761,32 @@ def calc_port_class(packet_list, filter_con):
     print("src_port_class_list: ", len(dst_port_class_list), dst_port_class_list)
 
     for i, (data) in enumerate(src_port_class_list):
+        concat_src_prtclass = ""
         for j in range(12):
             if j < len(data):
-                feature_list[i].append(data[j])
+                concat_src_prtclass += str(data[j])
+                # ethernet_len_list[i].append(data[j])
             else:
-                feature_list[i].append(0)
+                concat_src_prtclass += str(0)
+                # ethernet_len_list[i].append(0)
+        print(i, "Source port class vector:", concat_src_prtclass)
+        feature_list[i].append(concat_src_prtclass)
+        if i == 0:
+            feature_name_list.append("Source port class (" + filter_con + ")")
 
     for i, (data) in enumerate(dst_port_class_list):
+        concat_dst_prtclass = ""
         for j in range(12):
             if j < len(data):
-                feature_list[i].append(data[j])
+                concat_dst_prtclass += str(data[j])
+                # ethernet_len_list[i].append(data[j])
             else:
-                feature_list[i].append(0)
+                concat_dst_prtclass += str(0)
+                # ethernet_len_list[i].append(0)
+        print(i, "Destination port class vector:", concat_dst_prtclass)
+        feature_list[i].append(concat_dst_prtclass)
+        if i == 0:
+            feature_name_list.append("Destination port class (" + filter_con + ")")
 
 
 def end_generator(packet_list):
@@ -613,12 +808,11 @@ def load_behavior_features(folder):
     # Calculate the features for packet list
     piped_to_eth_size = calc_IA_features(piped_to_IA, filter)
     piped_to_ip_size = calc_ethsize_features(piped_to_eth_size, filter)
-    piped_to_ip_header_size = calc_IP_size_features(piped_to_ip_size, filter)
+    piped_to_ip_header_size = calc_IP_payload_size_features(piped_to_ip_size, filter)
     piped_to_pkt_count = calc_IP_header_size_features(piped_to_ip_header_size, filter)
-    piped_to_pkt_direction = calc_num_of_pkts(piped_to_pkt_count, filter)
+    piped_to_pkt_direction = calc_pkt_rate(piped_to_pkt_count, filter)
     piped_to_end_generator = calc_pkt_directions(piped_to_pkt_direction, filter)
     # piped_to_port_class = calc_IP_destinations(piped_to_ip_destinations, filter)
-    # piped_to_end_generator = calc_port_class(piped_to_port_class, filter)
     end_generator(piped_to_end_generator)
 
 
@@ -631,9 +825,9 @@ def load_behavior_features(folder):
     # Calculate the features for packet list
     piped_to_eth_size = calc_IA_features(packet_list_from_Src, filter)
     piped_to_ip_size = calc_ethsize_features(piped_to_eth_size, filter)
-    piped_to_ip_header_size = calc_IP_size_features(piped_to_ip_size, filter)
+    piped_to_ip_header_size = calc_IP_payload_size_features(piped_to_ip_size, filter)
     piped_to_pkt_count = calc_IP_header_size_features(piped_to_ip_header_size, filter)
-    piped_to_ip_destinations = calc_num_of_pkts(piped_to_pkt_count, filter)
+    piped_to_ip_destinations = calc_pkt_rate(piped_to_pkt_count, filter)
     piped_to_port_class = calc_IP_destinations(piped_to_ip_destinations, filter)
     piped_to_end_generator = calc_port_class(piped_to_port_class, filter)
     # piped_to_end_generator = calc_euclidean_distance(piped_to_IA, filter)
@@ -650,7 +844,7 @@ def load_behavior_features(folder):
     # # Calculate the features for packet list
     # piped_to_eth_size = calc_IA_features(packet_list_to_Src, filter)
     # piped_to_ip_size = calc_ethsize_features(piped_to_eth_size, filter)
-    # piped_to_ip_header_size = calc_IP_size_features(piped_to_ip_size, filter)
+    # piped_to_ip_header_size = calc_IP_payload_size_features(piped_to_ip_size, filter)
     # piped_to_pkt_count = calc_IP_header_size_features(piped_to_ip_header_size, filter)
     # piped_to_end_generator = calc_num_of_pkts(piped_to_pkt_count, filter)
     # end_generator(piped_to_end_generator)
@@ -665,31 +859,37 @@ pcap_folder = "F:\\MSC\\Master Thesis\\Network traces\\captures_IoT_Sentinel_all
 try:
     dataset_X = pickle.load(open("Ven_behav_features.pickle", "rb"))
     dataset_v = pickle.load(open("Ven_behav_vendors.pickle", "rb"))
-    dataset_y = pickle.load(open("Ven_behav_Devices.pickle", "rb"))
+    dataset_y = pickle.load(open("Ven_behav_devices.pickle", "rb"))
+    feature_name_list = pickle.load(open("Ven_behav_feature_name_list.pickle", "rb"))
     print("Pickling successful behavioral features ......")
 except (OSError, IOError, FileNotFoundError) as e:
     print("No pickle datasets are available....")
     dataset_X, dataset_v, dataset_y = load_behavior_features(pcap_folder)
-    # pickle.dump(dataset_X, open("Ven_behav_features.pickle", "wb"))
-    # pickle.dump(dataset_v, open("Ven_behav_vendors.pickle", "wb"))
-    # pickle.dump(dataset_y, open("Ven_behav_Devices.pickle", "wb"))
+    pickle.dump(dataset_X, open("Ven_behav_features.pickle", "wb"))
+    pickle.dump(dataset_v, open("Ven_behav_vendors.pickle", "wb"))
+    pickle.dump(dataset_y, open("Ven_behav_devices.pickle", "wb"))
+    pickle.dump(feature_name_list, open("Ven_behav_feature_name_list.pickle", "wb"))
     feature_list = []
     device_list = []
     vendor_list = []
+
+dataset_X = np.array(dataset_X).astype(np.float64)
+dataset_v = np.array(dataset_v)
+dataset_y = np.array(dataset_y)
+
+# chi2_, pval_ = chi2(dataset_X, dataset_y)
+# dataset_X = SelectKBest(chi2, k=70).fit_transform(dataset_X, dataset_y)
 
 Number_of_features = len(dataset_X[0])
 print("Number of features: ", Number_of_features)
 print("Number of captures: ", len(dataset_X))
 
-dataset_X = np.array(dataset_X)
-dataset_v = np.array(dataset_v)
-dataset_y = np.array(dataset_y)
-
 all_devices_set = set(dataset_y)
+print("all_devices_set", all_devices_set)
 
 num_of_iter = 10
-total_dev_pred_accuracy = {}          # records device prediction accuracy
-total_vendor_pred_accuracy = {}       # records vendor prediction accuracy
+total_dev_pred_accuracy = {}          # records device pred_vector accuracy
+total_vendor_pred_accuracy = {}       # records vendor pred_vector accuracy
 all_test_dev_counter = {}
 all_tested_vendors = []
 all_predicted_vendors = []
@@ -697,6 +897,8 @@ all_tested_devices = []
 all_predicted_devices = []
 iterationwise_vendor_pred_accuracy = {}
 iterationwise_device_pred_accuracy = {}
+f_importance = {}            # records the feature importance in classification
+
 
 for iter in range(num_of_iter):    # repeat for j times
 
@@ -739,15 +941,24 @@ for iter in range(num_of_iter):    # repeat for j times
     # scores = cross_val_score(clf, data_VX, data_VV, cv=5)
     # print("scores: ", scores)
 
+    importances = clf.feature_importances_  # calculates the feature importance
+    std = np.std([tree.feature_importances_ for tree in clf.estimators_], axis=0)
+    indices = np.argsort(importances)[::-1]
+    for f in range(X_train.shape[1]):
+        if indices[f] % Number_of_features not in f_importance:
+            f_importance[indices[f] % Number_of_features] = importances[indices[f]]
+        else:
+            f_importance[indices[f] % Number_of_features] += importances[indices[f]]
+
     test_set = set(y_test)  # list of unique device labels
     # print("Number of test devices: ", len(test_set))
     # print("Test Device set: ", test_set)
 
     for device in test_set:  # get the number of fingerprints for each device under predicted vendor (not all vendors)
-        if iter == 0:
-            count = 0
-        else:
+        try:
             count = all_test_dev_counter[device]
+        except KeyError:
+            count = 0
         for record in y_test:
             if record == device:
                 count += 1
@@ -768,7 +979,7 @@ for iter in range(num_of_iter):    # repeat for j times
     for k in range(len(X_test)):
         all_tested_vendors.append(v_test[k])
         all_predicted_vendors.append(v_predict[k])
-        if v_test[k] == v_predict[k]:  # calculate the vendor prediction accuracy
+        if v_test[k] == v_predict[k]:  # calculate the vendor pred_vector accuracy
             if y_test[k] not in total_vendor_pred_accuracy:
                 total_vendor_pred_accuracy[y_test[k]] = 1
             else:
@@ -822,8 +1033,17 @@ for iter in range(num_of_iter):    # repeat for j times
         data_DX = np.array(data_DX)  # convert training data lists to numpy arrays
         data_DY = np.array(data_DY)
 
-        clf_dev = RandomForestClassifier(n_estimators=50)
+        clf_dev = RandomForestClassifier(n_estimators=100)
         clf_dev.fit(data_DX, data_DY)  # training the classifier for device detection under the predicted vendor
+
+        # importances = clf_dev.feature_importances_  # calculates the feature importance
+        # std = np.std([tree.feature_importances_ for tree in clf_dev.estimators_], axis=0)
+        # indices = np.argsort(importances)[::-1]
+        # for f in range(X_train.shape[1]):
+        #     if indices[f] % Number_of_features not in f_importance:
+        #         f_importance[indices[f] % Number_of_features] = importances[indices[f]]
+        #     else:
+        #         f_importance[indices[f] % Number_of_features] += importances[indices[f]]
 
         unknown_fp = []
         unknown_fp.append(X_test[i])
@@ -832,7 +1052,7 @@ for iter in range(num_of_iter):    # repeat for j times
 
         all_tested_devices.append(y_test[i])
         all_predicted_devices.append(dev_predict[0])
-        if y_test[i] == dev_predict[0]:      # calculate the device prediction accuracy
+        if y_test[i] == dev_predict[0]:      # calculate the device pred_vector accuracy
             if y_test[i] not in total_dev_pred_accuracy:
                 total_dev_pred_accuracy[y_test[i]] = 1
             else:
@@ -864,18 +1084,79 @@ for key, value in total_vendor_pred_accuracy.items():
 for key, value in total_dev_pred_accuracy.items():
     total_dev_pred_accuracy[key] = value / (all_test_dev_counter[key])  # produce the accuracy as a fraction for device predictions
 
+for key, value in f_importance.items():
+    f_importance[key] = value/(num_of_iter)  # produce the accuracy as a fraction
 
-# plot_pred_accuracy(total_vendor_pred_accuracy, "SC RF Vendor Prediction - Flowbased analysis", 1, True, "Accuracy")
+# plot_results(total_vendor_pred_accuracy, "SC RF Vendor Prediction - Flowbased analysis", 1, True, "Accuracy")
 plot_pred_accuracy(iterationwise_vendor_pred_accuracy, "SC RF Vendor Prediction - Flowbased analysis", 1, True, "Accuracy")
-# plot_pred_accuracy(total_dev_pred_accuracy, "SC RF Device Prediction - Flowbased analysis", 1, True, "Accuracy")
+# plot_results(total_dev_pred_accuracy, "SC RF Device Prediction - Flowbased analysis", 1, True, "Accuracy")
 plot_pred_accuracy(iterationwise_device_pred_accuracy, "SC RF Device Prediction - Flowbased analysis", 1, True, "Accuracy")
-class_lbls = list(set(all_tested_vendors))
-class_lbls = ['Ednet_V', 'Hue_V', 'HomeMaticPlug_V', 'Withings_V', 'Edimax_V', 'TP-Link_V',
-              'Aria_V', 'Lightify_V', 'MAXGateway_V', 'WeMo_V', 'D-Link_V', 'SmarterCoffee_V', 'iKettle2_V']
-print(class_lbls)
-print(classification_report(all_tested_vendors, all_predicted_vendors, class_lbls))
-cnf_matrix = confusion_matrix(all_tested_vendors, all_predicted_vendors, class_lbls)
+vendor_labels = list(set(all_tested_vendors))
+vendor_labels = ['HomeMaticPlug_V', 'Ednet_V', 'Hue_V', 'Withings_V', 'Edimax_V', 'TP-Link_V',
+                 'Aria_V', 'Lightify_V', 'MAXGateway_V', 'WeMo_V', 'D-Link_V', 'SmarterCoffee_V', 'iKettle2_V']
+device_labels = ['D-LinkWaterSensor', 'EdnetGateway', 'TP-LinkPlugHS100', 'WeMoSwitch', 'iKettle2', 'D-LinkSwitch',
+                 'HueSwitch', 'EdnetCam', 'HomeMaticPlug', 'D-LinkHomeHub', 'WeMoInsightSwitch', 'Aria', 'Withings',
+                 'D-LinkSensor', 'EdimaxPlug1101W', 'HueBridge', 'D-LinkSiren', 'MAXGateway', 'EdimaxPlug2101W',
+                 'Lightify', 'SmarterCoffee', 'EdimaxCam', 'D-LinkDayCam', 'D-LinkDoorSensor', 'WeMoLink',
+                 'D-LinkCam', 'TP-LinkPlugHS110']
+
+# evaluation results for vendor predictions
+cnf_matrix = confusion_matrix(all_tested_vendors, all_predicted_vendors, vendor_labels)
+clf_report = classification_report(all_tested_vendors, all_predicted_vendors, vendor_labels)
+prec, rec, f1_sco, supp = precision_recall_fscore_support(all_tested_devices, all_predicted_devices, labels=device_labels)
+
+
+# write the device pred_vector results into file
+# file = open("F:\\MSC\\Master Thesis\\Results\\Files from python code\\seq_based_device_prediction.txt", "w")
+# file.write("# Results of Device pred_vector accuracy\n")
+# file.write("class_Name\t Accuracy\t precision\t recall\t f1-score\t support\n")
+# for i in range(len(prec)):
+#     file.write(str(all_device_labels[i]) + "\t" + str(iterationwise_device_pred_accuracy[all_device_labels[i]][0]) + "\t"
+#                + str(prec[i]) + "\t" + str(rec[i]) + "\t" + str(f1_sco[i]) + "\t" + str(supp[i]) + "\n")
+# file.close()
+
+# write the feature importance values onto a file
+file = open("F:\\MSC\\Master Thesis\\Results\\Files from python code\\seq_based_feature_importance.txt", "w")
+file.write("# Results of Device pred_vector feature importance\n")
+file.write("Index\t Feature_name\t importance\n")
+index = 0
+for key, value in f_importance.items():
+    file.write(str(key) + "\t" + str(feature_name_list[index]) + "\t"
+               + str(value) + "\n")
+    index += 1
+file.close()
+
+f = open("F:\\MSC\\Master Thesis\\Results\\Files from python code\\seq_based_device_prediction.txt", "r")
+lines = f.readlines()
+f.close()
+
+class_Name = []
+Accuracy = []
+precision = []
+recall = []
+f1_score = []
+support = []
+
+for i, line in enumerate(lines):
+    if "#" in line:
+        continue
+    else:
+        t = line.split();
+        class_Name.append(t[0])
+        Accuracy.append(t[1])
+        precision.append(t[2])
+        recall.append(t[3])
+        f1_score.append(t[4])
+        support.append(t[5])
+
+print(clf_report)
 print(cnf_matrix)
-plot_confusion_matrix(cnf_matrix, class_lbls, True, 'Confusion matrix, with normalization')
+
+plot_confusion_matrix(cnf_matrix, vendor_labels, True, 'Confusion matrix, with normalization')
+
 print(classification_report(all_tested_devices, all_predicted_devices))
 print(confusion_matrix(all_tested_devices, all_predicted_devices))
+plot_results(f_importance, "Feature importance RF - Flowbased analysis", 1, True, "Importance")
+print("Lengths of feature_name_list, f_importance:", len(feature_name_list), len(f_importance))
+print(feature_name_list)
+print(f_importance)

@@ -208,7 +208,7 @@ def plot_results(pred_accuracy, title):
     dataset = sorted(pred_accuracy.items(), key=operator.itemgetter(1),
                      reverse=True)  # sort the dictionary with values
 
-    # plot the results (device type vs accuracy of prediction)
+    # plot the results (device type vs accuracy of pred_vector)
     device = list(zip(*dataset))[0]
     accuracy = list(zip(*dataset))[1]
 
@@ -259,8 +259,8 @@ X_unknown = np.array(X_unknown)
 y_unknown = np.array(y_unknown)
 
 num_of_iter = 20
-dev_pred_accuracy = {}      # records device prediction accuracy
-vendor_pred_accuracy = {}      # records vendor prediction accuracy
+dev_pred_accuracy = {}      # records device pred_vector accuracy
+vendor_pred_accuracy = {}      # records vendor pred_vector accuracy
 
 for j in range(num_of_iter):         # repeat for j times
     data_VX = []
@@ -285,7 +285,7 @@ for j in range(num_of_iter):         # repeat for j times
     print("Predicted vendor: ", v_predict)
 
     for k in range(len(X_unknown)):
-        if v_unknown[k] == v_predict[k]:  # calculate the vendor prediction accuracy
+        if v_unknown[k] == v_predict[k]:  # calculate the vendor pred_vector accuracy
             if y_unknown[k] not in vendor_pred_accuracy:
                 vendor_pred_accuracy[y_unknown[k]] = 1
             else:
@@ -332,7 +332,7 @@ for j in range(num_of_iter):         # repeat for j times
         dev_predict = clf_dev.predict(unknown_fp)   # predict the device for each predicted vendor (one at a time)
         print("Predicted device: ", dev_predict, "\tPredicted vendor: ", pre_vendor, "\tActual device: ", y_unknown[i])
 
-        if y_unknown[i] == dev_predict[0]:      # calculate the device prediction accuracy
+        if y_unknown[i] == dev_predict[0]:      # calculate the device pred_vector accuracy
             if y_unknown[i] not in dev_pred_accuracy:
                 dev_pred_accuracy[y_unknown[i]] = 1
             else:
@@ -356,5 +356,5 @@ print(dev_pred_accuracy)
 print(len(vendor_pred_accuracy))
 print(vendor_pred_accuracy)
 
-plot_results(vendor_pred_accuracy, "Two step classifier (Vendor prediction)")
-plot_results(dev_pred_accuracy, "Two step classifier (Device prediction)")
+plot_results(vendor_pred_accuracy, "Two step classifier (Vendor pred_vector)")
+plot_results(dev_pred_accuracy, "Two step classifier (Device pred_vector)")
