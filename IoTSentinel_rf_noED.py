@@ -1,10 +1,6 @@
-import os
 import fnmatch
-import pyshark
 import numpy as np
 import pickle
-import random
-import operator
 from random import randint
 from scapy.all import *
 from random import sample
@@ -16,7 +12,6 @@ from sklearn.metrics import classification_report, precision_recall_fscore_suppo
 from sklearn.metrics import confusion_matrix
 from sklearn.metrics import log_loss
 
-#import feature_extraction as fe
 import features_scapy as fe
 
 dest_ip_set = {}    # stores the destination IP set, a global variable

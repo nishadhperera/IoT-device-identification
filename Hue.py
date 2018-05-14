@@ -16,7 +16,7 @@ def connect(b):
 
 def list_bulbs(b):
     lights = b.lights
-    for l in lights:        # Print light names
+    for l in lights:        # Print list of light names
         print(l.name)
 
 
