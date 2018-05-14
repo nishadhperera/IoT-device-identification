@@ -12,7 +12,7 @@ from sklearn.model_selection import train_test_split
 from sklearn.ensemble import RandomForestClassifier
 from pyxdameraulevenshtein import damerau_levenshtein_distance, normalized_damerau_levenshtein_distance
 from sklearn import svm
-from sklearn.metrics import classification_report
+from sklearn.metrics import classification_report, precision_recall_fscore_support
 from sklearn.metrics import confusion_matrix
 from sklearn.metrics import log_loss
 
@@ -28,12 +28,21 @@ prev_class = ""
 concat_feature = []
 count = 0
 source_mac_add = ""
+features_DL = {}
+all_features_DL = {}
+f_array = []
+index_array = []
+packet_index = 0
+
+vectors_edit_distance = {}  # stores the vectors for edit distance calculation
+
 
 def pcap_class_generator(folder):
     for path, dir_list, file_list in os.walk(folder):
         for name in fnmatch.filter(file_list, "*.pcap"):
             global dst_ip_counter
             global dest_ip_set
+            global packet_index
             dest_ip_set.clear()  # stores the destination IP set
             dst_ip_counter = 0
             global feature_set
@@ -41,9 +50,11 @@ def pcap_class_generator(folder):
             global concat_feature
             print(os.path.join(path, name))
             prev_class = ""
+            packet_index = 0
             concat_feature = []
             feature_set = []
             yield os.path.join(path, name), os.path.basename(os.path.normpath(path))
+
 
 def packet_class_generator(pcap_class_gen):
     for pcapfile, class_ in pcap_class_gen:
@@ -90,6 +101,7 @@ def packet_class_generator(pcap_class_gen):
             if packet[0].src == source_mac_add:
                 yield packet, class_
 
+
 def feature_class_generator(packet_class_gen):
 
     for packet, class_ in packet_class_gen:
@@ -133,9 +145,6 @@ def feature_class_generator(packet_class_gen):
 
         yield fvector, class_
 
-features_DL = {}
-all_features_DL = {}
-f_array = []
 
 def dataset(feature_class_gen):
     global feature_set
@@ -144,6 +153,8 @@ def dataset(feature_class_gen):
     global capture_len
     global count
     global f_array
+    global index_array
+    global packet_index
 
     def g():
         global feature_set
@@ -153,8 +164,12 @@ def dataset(feature_class_gen):
         global count
         global f_array
         global last_vector
+        global index_array
+        global packet_index
 
         for i, (feature, class_) in enumerate(feature_class_gen):
+            packet_index += 1
+            # print("packet_index = ", packet_index)
             # This block removes the consecutive identical features from the data set
             if not last_vector:
                 last_vector = feature
@@ -163,8 +178,10 @@ def dataset(feature_class_gen):
                     if capture_len == count and len(concat_feature) < 276:  # if the number of feature count is < 276,
                         while len(concat_feature) < 276:  # add 0's as padding
                             concat_feature = concat_feature + [0]
+                        print("Yield", concat_feature)
+                        index_array.append(packet_index)
+                        # print(index_array)
                         yield concat_feature, class_
-                        print("capture_len == count", concat_feature)
                     continue
                 last_vector = feature
 
@@ -182,7 +199,7 @@ def dataset(feature_class_gen):
 
             # Generating the F' vector from F matrix
             if (len(feature_set) < 12) or (prev_class != class_):       # Get 12 unique features for each device type
-                print("if (len(feature_set) < 12) or (prev_class != class_):")
+                # print("if (len(feature_set) < 12) or (prev_class != class_):")
                 if not prev_class:                                      # concatenated into a 276 dimensional vector
                     prev_class = class_
                     feature_set.append(feature)
@@ -192,9 +209,14 @@ def dataset(feature_class_gen):
                         if not feature in feature_set:  # Adding a unique feature
                             feature_set.append(feature)
                             concat_feature = concat_feature + feature
+                            if len(feature_set) == 5:
+                                if not class_ in vectors_edit_distance:
+                                    vectors_edit_distance[class_] = feature_set[0:5]
                             if len(feature_set) == 12:
+                                index_array.append(packet_index)
+                                # print(index_array)
+                                print("Yield", len(concat_feature))
                                 yield concat_feature, class_
-                                print("len(feature_set) == 12", concat_feature)
                     else:
                         prev_class = ""
                         feature_set = []
@@ -205,9 +227,14 @@ def dataset(feature_class_gen):
             if capture_len == count and len(concat_feature) < 276:  # if the number of feature count is < 276,
                 while len(concat_feature) < 276:                    # add 0's as padding
                     concat_feature = concat_feature + [0]
+                print("Added:", class_, concat_feature)
+                index_array.append(packet_index)
+                # print(index_array)
+                print("Yield", len(concat_feature))
                 yield concat_feature, class_
-                print("capture_len == count", concat_feature)
+
     return zip(*g())
+
 
 def load_data(pcap_folder_name):
     pcap_gen = pcap_class_generator(pcap_folder_name)
@@ -237,25 +264,43 @@ def damerau_levenshtein(seq1, seq2):
     return float(thisrow[len(seq2) - 1]) / float(max(len(seq1), len(seq2)))
 
 
+def Calc_feature_importance(classifier, Number_of_features, f_impor, iterationwise_fimpor):
+    importances = classifier.feature_importances_  # calculates the feature importance
+    print("importances", importances)
+    std = np.std([tree.feature_importances_ for tree in classifier.estimators_], axis=0)
+    indices = np.argsort(importances)[::-1]
+    for f in range(276):
+        if indices[f] % Number_of_features not in f_impor:
+            f_impor[indices[f] % Number_of_features] = importances[indices[f]]
+            iterationwise_fimpor[indices[f] % Number_of_features] = [importances[indices[f]]]
+        else:
+            f_impor[indices[f] % Number_of_features] += importances[indices[f]]
+            iterationwise_fimpor[indices[f] % Number_of_features].append(importances[indices[f]])
+    return f_impor, iterationwise_fimpor
+
+
 if __name__ == "__main__":
-    #pcap_folder="F:\\MSC\\Master Thesis\\Network traces\\captures_IoT_Sentinel\\Test"
-    pcap_folder = "F:\\MSC\\Master Thesis\\Network traces\\captures_IoT_Sentinel\\captures_IoT-Sentinel"
+    # pcap_folder="F:\\MSC\\Master Thesis\\Network traces\\captures_IoT_Sentinel_all\\Special"
+    pcap_folder = "F:\\MSC\\Master Thesis\\Network traces\\captures_IoT_Sentinel_all\\captures_IoT-Sentinel"
 
     try:
-        dataset_X = pickle.load(open("dataset_X.pickle", "rb"))
-        dataset_y = pickle.load(open("dataset_y.pickle", "rb"))
-        all_features_DL = pickle.load(open("features_DL.pickle", "rb"))
+        dataset_X = pickle.load(open("Sentinel_dataset_X.pickle", "rb"))
+        dataset_y = pickle.load(open("Sentinel_dataset_y.pickle", "rb"))
+        vectors_edit_distance = pickle.load(open("Sentinel_features_DL.pickle", "rb"))
         print("Pickling successful IoTSentinel_random_forest......")
     except (OSError, IOError) as e:
         print("No pickle datasets are available....")
         dataset_X, dataset_y = load_data(pcap_folder)
-        pickle.dump(dataset_X, open("dataset_X.pickle", "wb"))
-        pickle.dump(dataset_y, open("dataset_y.pickle", "wb"))
-        pickle.dump(features_DL, open("features_DL.pickle", "wb"))
-        all_features_DL = features_DL
-        features_DL = {}
+        pickle.dump(dataset_X, open("Sentinel_dataset_X.pickle", "wb"))
+        pickle.dump(dataset_y, open("Sentinel_dataset_y.pickle", "wb"))
+        pickle.dump(vectors_edit_distance, open("Sentinel_features_DL.pickle", "wb"))
+        # all_features_DL = features_DL
+        # features_DL = {}
+        # print("####################################################################################")
+        # print("index_array:", index_array)
+        # print("####################################################################################")
 
-    features_DL = all_features_DL
+    # features_DL = all_features_DL
 
     # test_folder="F:\\MSC\\Master Thesis\\Network traces\\captures_IoT_Sentinel\\not trained data"
     # X_unknown, y_unknown = load_data(test_folder)
@@ -265,114 +310,189 @@ if __name__ == "__main__":
 
     num_of_iter = 10
     same_to_other_ratio = 10
-    dev_pred_accuracy = {}      # records prediction accuracy
+    dev_pred_accuracy = {}      # records pred_vector accuracy
     test_dev_counter = {}
+    all_tested = []
+    all_predicted = []
+    f_importance = {}
+    iterationwise_fimportance = {}
+    Number_of_features = 23
+
+    from sklearn.model_selection import StratifiedKFold
 
     for j in range(num_of_iter):
         classifier_list = {}  # stores the computed classifiers
 
-        X_train, X_test, y_train, y_test = train_test_split(dataset_X, dataset_y, stratify=dataset_y, test_size=0.25,
-                                                            random_state=42)  # split dataset
-        X_unknown = X_test
-        y_unknown = y_test
+        # X_train, X_test, y_train, y_test = train_test_split(dataset_X, dataset_y, stratify=dataset_y, test_size=0.25,
+        #                                                                             random_state=42)  # split dataset
 
-        device_set = set(y_train)  # list of unique device labels
-        device_fp_counter = {}  # stores the fp count for each device
+        skf = StratifiedKFold(n_splits=10, shuffle=True)
+        for train_index, test_index in skf.split(dataset_X, dataset_y):
+            X_train, X_test = dataset_X[train_index], dataset_X[test_index]
+            y_train, y_test = dataset_y[train_index], dataset_y[test_index]
 
-        for device in device_set:  # calculates the number of fps for each device
-            count = 0
-            for record in y_train:
-                if record == device:
-                    count += 1
-            device_fp_counter[device] = count
+            X_unknown = X_test
+            y_unknown = y_test
 
-        print("Number of different devices: ", len(device_set), device_set)
+            device_set = set(y_train)  # list of unique device labels
+            device_fp_counter = {}  # stores the fp count for each device
 
-        test_set = set(y_unknown)  # list of unique device labels
-        print("Number of test devices: ", len(test_set))
-        print("Test Device set: ", test_set)
-
-        for device in test_set:  # get the number of fingerprints for each device under predicted vendor (not all vendors)
-            if j == 0:
+            for device in device_set:  # calculates the number of fps for each device
                 count = 0
-            else:
-                count = test_dev_counter[device]
-            for record in y_unknown:
-                if record == device:
-                    count += 1
-                    test_dev_counter[device] = count
+                # if not device in vectors_edit_distance:
+                #     data = X_train[y_train == device]
+                #     a = np.split(data[0], 12)
+                #     vectors_edit_distance[device] = a[0:5]
 
-        for device in device_set:
-            data_DX = []
-            data_Dy = []
+                for record in y_train:
+                    if record == device:
+                        count += 1
+                device_fp_counter[device] = count
 
-            temp_X = X_train[y_train == device]                     # filter all fps for a particular device
-            out_list = sample(list(temp_X), device_fp_counter[device])  # select all data samples from temp_X for a device
-            for fp in out_list:
-                data_DX.append(fp)      # append device specific fingerprints to the training data set
-                data_Dy.append(device)  # append device name to the respective training data set
+            print(len(vectors_edit_distance),  " Vectors_edit_distance: ", vectors_edit_distance)
 
-            other_X = X_train[y_train != device]            # filter all fps NOT related to above device
-            out_list = sample(list(other_X), device_fp_counter[device] * same_to_other_ratio)  # select 10 times more data samples from other classes for a device
-            for fp in out_list:
-                data_DX.append(fp)          # append other fingerprints to the training data set
-                data_Dy.append("Other")     # append device label as other to the respective training data set
+            print("Number of different devices: ", len(device_set), device_set)
 
-            data_DX = np.array(data_DX)     # convert training data lists to numpy arrays
-            data_Dy = np.array(data_Dy)
-            print(j, "Device: ", device, "Same size: ", len(temp_X), "other size: ", len(out_list), "All size: ", len(data_DX), len(data_DX))
+            test_set = set(y_unknown)  # list of unique device labels
+            print("Number of test devices: ", len(test_set))
+            print("Test Device set: ", test_set)
 
-            clf = RandomForestClassifier(n_estimators=50, max_depth=3)
-            clf.fit(data_DX, data_Dy)       # create a binary classifier for each device type
-            classifier_list[device] = clf   # store the classifiers in dictionary object
+            # for device in test_set:  # get the number of fingerprints for each device under predicted vendor(not all vendors)
+            #     if j == 0:
+            #         count = 0
+            #     else:
+            #         count = total_test_dev_counter[device]
+            #     for record in y_unknown:
+            #         if record == device:
+            #             count += 1
+            #             total_test_dev_counter[device] = count
 
-        # 27 classifiers generated by this point
-        for i in range(len(X_unknown)):
-            classifiers_results = []  # stores the positive classifier results
+            Curr_test_dev_counter = collections.Counter(y_unknown)
+            test_dev_counter = { k: test_dev_counter.get(k, 0) + Curr_test_dev_counter.get(k, 0)
+                                 for k in set(test_dev_counter) | set(Curr_test_dev_counter) }
 
-            for device, classifier in classifier_list.items():
-                unknown_dev = []
-                unknown_dev.append(X_unknown[i])
-                dev_predict = classifier.predict(unknown_dev)
-                if device == dev_predict[0]:
-                    classifiers_results.append(device)
+            for device in device_set:
+                data_DX = []
+                data_Dy = []
 
-            print("Device: ", y_unknown[i], "Predicted classifiers: ", classifiers_results)
+                temp_X = X_train[y_train == device]                     # filter all fps for a particular device
+                out_list = sample(list(temp_X), device_fp_counter[device])  # select all data samples from temp_X for a device
+                for fp in out_list:
+                    data_DX.append(fp)      # append device specific fingerprints to the training data set
+                    data_Dy.append(device)  # append device name to the respective training data set
 
-            if len(classifiers_results) > 1:
-                ED_results = {}         # stores results of edit distance calculations
-                for prediction in classifiers_results:
-                    if prediction in all_features_DL:
-                        count = 0
-                        edit_distance = 0
-                        for vector in all_features_DL[prediction]:
-                            f_arr = []
-                            for k in range(23):
-                                f_arr.append(X_unknown[i][count+k])
-                            # edit_distance = edit_distance + normalized_damerau_levenshtein_distance(str(features_DL[y_unknown[i]][count]), str(vector))
-                            edit_distance = edit_distance + damerau_levenshtein(f_arr, vector)
-                            count += 23
-                        ED_results[prediction] = edit_distance
+                other_X = X_train[y_train != device]            # filter all fps NOT related to above device
+                out_list = sample(list(other_X), device_fp_counter[device] * same_to_other_ratio)  # select 10 times more data samples from other classes for a device
+                for fp in out_list:
+                    data_DX.append(fp)          # append other fingerprints to the training data set
+                    data_Dy.append("Other")     # append device label as other to the respective training data set
 
-                print("Edit distance results: ", ED_results.items())
+                data_DX = np.array(data_DX)     # convert training data lists to numpy arrays
+                data_Dy = np.array(data_Dy)
+                print(j, "Device: ", device, "Same size: ", len(temp_X), "other size: ", len(out_list), "All size: ", len(data_DX), len(data_DX))
 
-                if len(ED_results) > 1:
-                    lowest = min(ED_results.values())
-                    for k, v in ED_results.items():
-                        if v == lowest:
-                            print("lowest ED: ", k)
-                            if k == y_unknown[i]:
+                clf = RandomForestClassifier(n_estimators=50, max_depth=3)
+                clf.fit(data_DX, data_Dy)       # create a binary classifier for each device type
+                f_importance, iterationwise_fimportance = Calc_feature_importance(clf, Number_of_features, f_importance, iterationwise_fimportance)
+                print("iterationwise_fimportance: ", iterationwise_fimportance)
+                break
+                classifier_list[device] = clf   # store the classifiers in dictionary object
+
+            print("len(classifier_list): ", len(classifier_list))
+            print(len(X_unknown), len(y_unknown))
+
+            # print("iterationwise_fimportance: ", iterationwise_fimportance)
+
+            # 27 classifiers generated by this point
+            for i in range(len(X_unknown)):
+                classifiers_results = []  # stores the positive classifier results
+                all_tested.append(y_unknown[i])
+
+                for device, classifier in classifier_list.items():
+                    unknown_dev = []
+                    unknown_dev.append(X_unknown[i])
+
+                    # dev_predict = classifier.predict(unknown_dev)
+                    # if device == dev_predict[0]:
+                    #     classifiers_results.append(device)
+                    # print(y_unknown[i], "with ", device, "| classifier.predict_proba:", dev_predict, dev_predict_proba, "Classes:", classifier.classes_)
+
+                    dev_predict_proba = classifier.predict_proba(unknown_dev)
+                    probabilities = dev_predict_proba[0]
+                    for k, (pred) in enumerate(probabilities):
+                        # print(i, classifier.classes_[i], pred)
+                        if (pred >= 0.2) and (classifier.classes_[k] != "Other"):
+                            # print("Prediction appended", pred, classifier.classes_[i])
+                            classifiers_results.append(classifier.classes_[k])
+
+                print("Device: ", y_unknown[i], "Predicted classifiers: ", classifiers_results)
+
+                if len(classifiers_results) > 1:
+                    ED_results = {}         # stores results of edit distance calculations
+                    for prediction in classifiers_results:
+                        if prediction in vectors_edit_distance:   # previously all_features_DL
+                            count = 0
+                            edit_distance = 0
+
+                            temp_comp = X_train[y_train == prediction]  # filter all fps for a particular device
+                            out_list = sample(list(temp_comp), 5)  # select all data samples from temp_X for a device
+                            for fp in out_list:
+                                # print("Two vectors:")
+                                # print("org  :", list(fp))
+                                # print("f_arr:", list(X_unknown[i]))
+                                edit_distance = edit_distance + damerau_levenshtein(str(list(X_unknown[i])), str(list(fp)))
+
+                            # for vector in vectors_edit_distance[pred_vector]:  # previously all_features_DL
+                            #     # if vector == "End":
+                            #     #     break
+                            #     f_arr = []
+                            #     for k in range(23):
+                            #         f_arr.append(X_unknown[i][count+k])
+                            #     # edit_distance = edit_distance + normalized_damerau_levenshtein_distance(str(features_DL[y_unknown[i]][count]), str(vector))
+                            #     # print("Two vectors:")
+                            #     # print("f_arr:", f_arr)
+                            #     # print("vector", vector)
+                            #     edit_distance = edit_distance + damerau_levenshtein(f_arr, vector)
+                            #     count += 23
+                            ED_results[prediction] = edit_distance
+
+                    print("Edit distance results: ", ED_results.items())
+
+                    if len(ED_results) > 1:
+                        lowest = min(ED_results.values())
+                        final_preds = []
+                        for k, v in ED_results.items():
+                            if v == lowest:
+                                final_preds.append(k)
+
+                        if len(final_preds) == 1:
+                            print("lowest ED: ", final_preds[0])
+                            all_predicted.append(final_preds[0])
+                            if final_preds[0] == y_unknown[i]:
                                 if y_unknown[i] not in dev_pred_accuracy:
                                     dev_pred_accuracy[y_unknown[i]] = 1
                                 else:
                                     dev_pred_accuracy[y_unknown[i]] += 1
-                            break
-            elif len(classifiers_results) == 1:
-                if classifiers_results[0] == y_unknown[i]:
-                    if y_unknown[i] not in dev_pred_accuracy:
-                        dev_pred_accuracy[y_unknown[i]] = 1
-                    else:
-                        dev_pred_accuracy[y_unknown[i]] += 1
+                        else:
+                            rand_val = randint(0, len(final_preds)-1)
+                            print("lowest ED: ", final_preds[rand_val])
+                            all_predicted.append(final_preds[rand_val])
+                            if final_preds[rand_val] == y_unknown[i]:
+                                if y_unknown[i] not in dev_pred_accuracy:
+                                    dev_pred_accuracy[y_unknown[i]] = 1
+                                else:
+                                    dev_pred_accuracy[y_unknown[i]] += 1
+
+                elif len(classifiers_results) == 1:
+                    all_predicted.append(classifiers_results[0])
+                    if classifiers_results[0] == y_unknown[i]:
+                        if y_unknown[i] not in dev_pred_accuracy:
+                            dev_pred_accuracy[y_unknown[i]] = 1
+                        else:
+                            dev_pred_accuracy[y_unknown[i]] += 1
+
+                else:
+                    all_predicted.append("None")
 
     print(len(dev_pred_accuracy))
     print(dev_pred_accuracy)
@@ -384,22 +504,71 @@ if __name__ == "__main__":
     print(len(dev_pred_accuracy))
     print(dev_pred_accuracy)
 
+    print("len(all_tested), len(all_predicted): ", len(all_tested), len(all_predicted))
+    print("All tested: ", all_tested)
+    print("All predicted: ", all_predicted)
+
+    # dev_pred_accuracy = {'D-LinkDoorSensor': 181, 'EdimaxPlug1101W': 141, 'HueSwitch': 200, 'Withings': 196,
+    #                      'HomeMaticPlug': 199, 'D-LinkSiren': 82, 'D-LinkSwitch': 116, 'WeMoLink': 200,
+    #                      'MAXGateway': 199, 'D-LinkHomeHub': 180, 'WeMoSwitch': 199, 'TP-LinkPlugHS110': 59,
+    #                      'iKettle2': 88, 'D-LinkDayCam': 187, 'EdnetCam': 160, 'EdimaxPlug2101W': 70, 'D-LinkCam': 148,
+    #                      'HueBridge': 175, 'TP-LinkPlugHS100': 155, 'D-LinkWaterSensor': 41, 'Lightify': 192,
+    #                      'EdimaxCam': 161, 'Aria': 200, 'SmarterCoffee': 94, 'WeMoInsightSwitch': 200,
+    #                      'EdnetGateway': 200, 'D-LinkSensor': 67}
+
     for key, value in dev_pred_accuracy.items():
         dev_pred_accuracy[key] = value/(test_dev_counter[key])  # produce the accuracy as a fraction
 
-    dataset = sorted(dev_pred_accuracy.items(), key=operator.itemgetter(1), reverse=True)   # sort the dictionary with values
+    device_labels = ['Aria', 'HomeMaticPlug', 'Withings', 'MAXGateway', 'HueBridge', 'HueSwitch', 'EdnetGateway',
+                     'EdnetCam', 'EdimaxCam', 'Lightify', 'WeMoInsightSwitch', 'WeMoLink', 'WeMoSwitch',
+                     'D-LinkHomeHub', 'D-LinkDoorSensor', 'D-LinkDayCam', 'D-LinkCam', 'D-LinkSwitch',
+                     'D-LinkWaterSensor', 'D-LinkSiren', 'D-LinkSensor', 'TP-LinkPlugHS110', 'TP-LinkPlugHS100',
+                     'EdimaxPlug1101W', 'EdimaxPlug2101W', 'SmarterCoffee', 'iKettle2']
 
-    # plot the results (device type vs accuracy of prediction)
-    device = list(zip(*dataset))[0]
-    accuracy = list(zip(*dataset))[1]
+    # prec, rec, f1_sco, supp = precision_recall_fscore_support(all_tested, all_predicted, labels=all_device_labels)
 
-    x_pos = np.arange(len(device))
+    # write the device pred_vector results into file
+    # file = open("F:\\MSC\\Master Thesis\\Results\\Files from python code\\IOT_sentinel_results.txt", "w")
+    # file.write("# Results of Device pred_vector accuracy\n")
+    # file.write("class_Name\t Accuracy\t precision\t recall\t f1-score\t support\n")
+    # for i in range(len(prec)):
+    #     file.write(str(all_device_labels[i]) + "\t" + str(dev_pred_accuracy[all_device_labels[i]]) + "\t"
+    #                + str(prec[i]) + "\t" + str(rec[i]) + "\t" + str(f1_sco[i]) + "\t" + str(supp[i]) + "\n")
+    # file.close()
 
-    plt.bar(x_pos, accuracy, align='edge')
-    plt.xticks(x_pos, device, rotation=315, ha='left')
-    plt.ylabel('Accuracy')
-    plt.title('Random forest with Edit Distance (Identical to IoT Sentinel)')
+    # dataset = sorted(dev_pred_accuracy.items(), key=operator.itemgetter(1), reverse=True)   # sort the dictionary with values
+    #
+    # # plot the results (device type vs accuracy of pred_vector)
+    # all_device_labels = list(zip(*dataset))[0]
+    # accuracy = list(zip(*dataset))[1]
+
+    accuracy = []
+    for dev in device_labels:
+        for key, value in dev_pred_accuracy.items():
+            if key == dev:
+                accuracy.append(value)
+
+    x_pos = np.arange(len(device_labels))
+
+    real_accuracy = [1.0, 1.0, 1.0, 1.0, 1.0, 0.98, 0.98, 0.95, 0.97, 0.96, 1.0, 1.0, 0.97, 1.0, 1.0, 1.0, 0.90, 0.62,
+                     0.50, 0.42, 0.38, 0.65, 0.55, 0.625, 0.575, 0.45, 0.42]
+    width = 0.35
+    fig, ax = plt.subplots()
+    rects1 = ax.bar(x_pos, real_accuracy, width, color='r')
+    rects2 = ax.bar(x_pos + width, accuracy, width, color='y')
+    ax.set_xticks(x_pos + width / 2)
+    ax.set_xticklabels(device_labels)
+    ax.legend((rects1[0], rects2[0]), ('Real', 'Mine'))
+
+    # plt.bar(x_pos, accuracy, align='edge')
+    # plt.xticks(x_pos, all_device_labels, rotation=315, ha='left')
+    # plt.ylabel('Accuracy')
+    # plt.title('Random forest with Edit Distance (Identical to IoT Sentinel)')
     plt.grid(linestyle='dotted')
     plt.show()
+
+    # file = open("F:\\MSC\\Master Thesis\\Results\\Files from python code\\IOT_sentinel_fimportance.txt", "w")
+    # file.write(str(iterationwise_fimportance))
+    # file.close()
 
 # print(clf.score(X_test, y_test))
