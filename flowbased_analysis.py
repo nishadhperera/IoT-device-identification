@@ -761,10 +761,9 @@ if __name__ == "__main__":
     f1_score_list = {}
     precision_list = {}
     recall_list = {}
-    pred_times = []
-    slice_length = 21       # Extracting the filtered first 21 packets
 
-    for s in range(slice_length):
+    for s in range(1):
+        slice_length = 21       # Extracting the filtered first 21 packets
         try:
             feature_name_list = pickle.load(open("Ven_behav_feature_name_list.pickle", "rb"))
             dataset_X = pickle.load(open("Dev_behav_features.pickle", "rb"))
@@ -782,7 +781,7 @@ if __name__ == "__main__":
         dataset_X = np.array(dataset_X, dtype=object)   # Dataset with the features
         dataset_y = np.array(dataset_y)                 # dataset with the device labels
 
-        for num_features in range(Number_of_features, 0, -1):
+        for num_features in range(1):
             device_set = set(dataset_y)     # list of unique device labels
 
             num_of_iter = 10
@@ -807,13 +806,15 @@ if __name__ == "__main__":
                 skf = StratifiedKFold(n_splits=k_folds, shuffle=True)   # splitting the dataset with k-folds
 
                 for train_index, test_index in skf.split(dataset_X, dataset_y):
+                    print("Iteration No: ", iter, " with K_fold inner iteration: ", iteration)
                     iteration += 1
                     X_train, X_test = dataset_X[train_index], dataset_X[test_index]     # train/ test feature set
                     y_train, y_test = dataset_y[train_index], dataset_y[test_index]     # train/ test device labels
 
-                    scaling = MinMaxScaler(feature_range=(-1, 1)).fit(X_train)
-                    X_train = scaling.transform(X_train)
-                    X_test = scaling.transform(X_test)
+                    # scaling is somtimes required if you decide to change the classification model
+                    # scaling = MinMaxScaler(feature_range=(-1, 1)).fit(X_train)
+                    # X_train = scaling.transform(X_train)
+                    # X_test = scaling.transform(X_test)
 
                     X_unknown = X_test
                     y_unknown = y_test
@@ -838,14 +839,12 @@ if __name__ == "__main__":
                             f_importance[indices[f] % Number_of_features] += importances[indices[f]]
                             iterationwise_fimportance[indices[f] % Number_of_features].append(importances[indices[f]])
 
-                    t = time.time()
-                    y_predict = clf.predict(X_unknown)
-                    pred_times.append(time.time() - t)
+                    y_predict = clf.predict(X_unknown)      # Predicting the device names for unknown fingerprints
 
                     for i in range(len(y_unknown)):
-                        all_tested.append(y_unknown[i])
-                        all_predicted.append(y_predict[i])
-                        if y_unknown[i] == y_predict[i]:
+                        all_tested.append(y_unknown[i])     # List of all tested devices
+                        all_predicted.append(y_predict[i])  # List of all predicted devices
+                        if y_unknown[i] == y_predict[i]:    # Calculate the correctly predicted devices
                             if y_unknown[i] not in total_dev_pred_accuracy:
                                 total_dev_pred_accuracy[y_unknown[i]] = 1
                             else:
@@ -864,10 +863,11 @@ if __name__ == "__main__":
 
                     current_test = y_unknown
                     current_predcited = y_predict
+                    # Measure the performance evaluation metrics using sklearn
                     precision, recall, f1_sco, supp = precision_recall_fscore_support(current_test, current_predcited,
                                                                                       labels=device_labels)
                     for i, (device) in enumerate(device_labels):
-                        if device not in iterationwise_precision:
+                        if device not in iterationwise_precision:       # store iteration-wise performance matrics
                             iterationwise_precision[device] = [precision[i]]
                             iterationwise_recall[device] = [recall[i]]
                             iterationwise_f1score[device] = [f1_sco[i]]
@@ -921,3 +921,8 @@ if __name__ == "__main__":
         for key, value in iterationwise_f1score.items():
             f1_list.append(value[i])
         iterationwise_f1_list.append(np.mean(f1_list))
+
+    print("Avg f1-score", np.mean(iterationwise_f1_list))       # Display the Average F1-score
+    print("Min f1-score", np.min(iterationwise_f1_list))        # Display the Minimum F1-score
+    print("Max f1-score", np.max(iterationwise_f1_list))        # Display the Maximum F1-score
+    print("Var f1-score", np.var(iterationwise_f1_list))        # Display the Variance of F1-scores
