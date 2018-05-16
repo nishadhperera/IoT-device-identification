@@ -82,7 +82,7 @@ def pcap_class_generator(pcap_folder):
 
     for path, dir_list, file_list in os.walk(pcap_folder):
         for name in fnmatch.filter(file_list, "*.pcap"):
-            print(os.path.join(path, name), os.path.basename(os.path.normpath(path)))
+            print(os.path.join(path, name), os.path.basename(os.path.normpath(path)))   # current file name
             new_device = True
             if IA_times:
                 IA_times_list.append(IA_times)
@@ -131,23 +131,20 @@ def packet_filter_generator(pcap_class_gen, filter_con):
         mac_address_list = {}
         src_mac_address_list = {}
 
-        mac_addresses = {'Aria': ['20:f8:5e:ca:91:52'], 'D-LinkCam': ['b0:c5:54:25:5b:0e'],
-                         'D-LinkDayCam': ['b0:c5:54:1c:71:85'],
-                         'D-LinkDoorSensor': ['1c:5f:2b:aa:fd:4e'], 'D-LinkHomeHub': ['1c:5f:2b:aa:fd:4e'],
-                         'D-LinkSensor': ['90:8d:78:a8:e1:43'], 'D-LinkSiren': ['90:8d:78:dd:0d:60'],
-                         'D-LinkSwitch': ['90:8d:78:a9:3d:6f'], 'D-LinkWaterSensor': ['6c:72:20:c5:17:5a'],
-                         'EdimaxCam': ['74:da:38:80:79:fc', '74:da:38:80:7a:08'],
-                         'EdimaxPlug1101W': ['74:da:38:4a:76:49'],
-                         'EdimaxPlug2101W': ['74:da:38:23:22:7b'],
-                         'EdnetCam': ['3c:49:37:03:17:f0', '3c:49:37:03:17:db'],
-                         'EdnetGateway': ['ac:cf:23:62:3c:6e'], 'HomeMaticPlug': ['00:1a:22:05:c4:2e'],
-                         'HueBridge': ['00:17:88:24:76:ff'], 'HueSwitch': ['00:17:88:24:76:ff'],
-                         'iKettle2': ['5c:cf:7f:06:d9:02'],
-                         'Lightify': ['84:18:26:7b:5f:6b'], 'MAXGateway': ['00:1a:22:03:cb:be'],
-                         'SmarterCoffee': ['5c:cf:7f:07:ae:fb'], 'TP-LinkPlugHS100': ['50:c7:bf:00:fc:a3'],
-                         'TP-LinkPlugHS110': ['50:c7:bf:00:c7:03'], 'WeMoInsightSwitch': ['94:10:3e:41:c2:05'],
-                         'WeMoLink': ['94:10:3e:cd:37:65'], 'WeMoSwitch': ['94:10:3e:35:01:c1'],
-                         'Withings': ['00:24:e4:24:80:2a']}
+        mac_addresses = {
+            'Aria': ['20:f8:5e:ca:91:52'], 'D-LinkCam': ['b0:c5:54:25:5b:0e'], 'D-LinkDayCam': ['b0:c5:54:1c:71:85'],
+            'D-LinkDoorSensor': ['1c:5f:2b:aa:fd:4e'], 'D-LinkHomeHub': ['1c:5f:2b:aa:fd:4e'],
+            'D-LinkSensor': ['90:8d:78:a8:e1:43'], 'D-LinkSiren': ['90:8d:78:dd:0d:60'],
+            'D-LinkSwitch': ['90:8d:78:a9:3d:6f'], 'D-LinkWaterSensor': ['6c:72:20:c5:17:5a'],
+            'EdimaxCam': ['74:da:38:80:79:fc', '74:da:38:80:7a:08'], 'EdimaxPlug1101W': ['74:da:38:4a:76:49'],
+            'EdimaxPlug2101W': ['74:da:38:23:22:7b'], 'EdnetCam': ['3c:49:37:03:17:f0', '3c:49:37:03:17:db'],
+            'EdnetGateway': ['ac:cf:23:62:3c:6e'], 'HomeMaticPlug': ['00:1a:22:05:c4:2e'],
+            'HueBridge': ['00:17:88:24:76:ff'], 'HueSwitch': ['00:17:88:24:76:ff'], 'iKettle2': ['5c:cf:7f:06:d9:02'],
+            'Lightify': ['84:18:26:7b:5f:6b'], 'MAXGateway': ['00:1a:22:03:cb:be'],'SmarterCoffee': ['5c:cf:7f:07:ae:fb'],
+            'TP-LinkPlugHS100': ['50:c7:bf:00:fc:a3'], 'TP-LinkPlugHS110': ['50:c7:bf:00:c7:03'],
+            'WeMoInsightSwitch': ['94:10:3e:41:c2:05'], 'WeMoLink': ['94:10:3e:cd:37:65'],
+            'WeMoSwitch': ['94:10:3e:35:01:c1'], 'Withings': ['00:24:e4:24:80:2a']
+            }
 
         for i, (packet) in enumerate(capture):
             if packet[0].src not in mac_address_list:  # Counting the source MAC counter value
@@ -228,12 +225,12 @@ def plot_confusion_matrix(cm, classes, normalize, title='Confusion matrix', cmap
         print('Confusion matrix, without normalization')
 
     plt.imshow(cm, interpolation='nearest', cmap=cmap)
-    plt.title(title, y=-0.08)
-    plt.colorbar()
     tick_marks = np.arange(len(classes))
     plt.xticks(tick_marks, classes, rotation=45, ha='left')
-    plt.tick_params('x', labelbottom='off', labeltop='on')
     plt.yticks(tick_marks, classes)
+    plt.title(title, y=-0.08)
+    plt.colorbar()
+    plt.tick_params('x', labelbottom='off', labeltop='on')
 
     fmt = '.2f' if normalize else 'd'
     thresh = cm.max() / 2.
@@ -249,7 +246,7 @@ def plot_confusion_matrix(cm, classes, normalize, title='Confusion matrix', cmap
 
 def plot_pred_accuracy(pred_accuracy, title, item_index, reverse, y_lable):
     """ Function plots the prediction accuracy for each device type """
-    score = 1.96
+    score = 1.96        # z-score value for confidence interval
     mean_accuracy = {}
     stdDev_accuracy = {}
     sample_size = {}
@@ -270,10 +267,9 @@ def plot_pred_accuracy(pred_accuracy, title, item_index, reverse, y_lable):
                    'EdimaxPlug2101W', 'iKettle2', 'D-LinkSensor', 'SmarterCoffee', 'EdimaxPlug1101W', 'D-LinkSiren',
                    'D-LinkWaterSensor']
 
-    x_pos = np.arange(len(device_list))
-
     std_dev = []
     accuracy = []
+    x_pos = np.arange(len(device_list))
     for dev in device_list:
         std_dev.append(score * (stdDev_accuracy[dev]/np.sqrt(sample_size[dev])))
         accuracy.append(mean_accuracy[dev])
@@ -299,8 +295,7 @@ def plot_pred_accuracy(pred_accuracy, title, item_index, reverse, y_lable):
     plt.ylabel(y_lable)
     plt.grid(linestyle='dotted')
 
-    plt.savefig("F:\\MSC\\Master Thesis\\Results\\Classifier comparison\\fig_clf_RF.pdf",
-                bbox_inches='tight')
+    plt.savefig("figure_clf_RandomForest.pdf", bbox_inches='tight')
     plt.show()
 
 
@@ -330,7 +325,7 @@ def calc_IA_features(packet_list, filter_con):
 
     for i, (packet, dev_name) in enumerate(packet_list):
         if prev_packet == "":
-            pass
+            print("No previous packet to calculate inter-arrival time")
         else:
             time_gap = packet.time - prev_packet.time
             IA_times.append(abs(time_gap))
@@ -373,9 +368,8 @@ def calc_IA_features(packet_list, filter_con):
         if len(sorted_fft) < 10:            # pad the array with zeros if at least 10 fft components are not there
             sorted_fft = np.append(sorted_fft, np.zeros(10 - len(sorted_fft)))
 
-        # print(i, "FFT features: ", filter_con, sorted_fft)
-        for fft_val in sorted_fft:          # append fft values to feature list
-            feature_list[i].append(fft_val)
+        for fft_val in sorted_fft:
+            feature_list[i].append(fft_val) # append fft values to feature list
 
 
 def calc_ethsize_features(packet_list, filter_con):
@@ -388,9 +382,10 @@ def calc_ethsize_features(packet_list, filter_con):
     for i, (packet, dev_name) in enumerate(packet_list):
         try:
             ether_len.append(len(packet))
-        except IndexError:
-            pass
+        except IndexError as e:
+            print("Error message: ", str(e))
         yield packet, dev_name
+
     ether_len_list.append(ether_len)
     ether_len = []
 
@@ -425,15 +420,15 @@ def calc_IP_payload_size_features(packet_list, filter_con):
     for i, (packet, dev_name) in enumerate(packet_list):
         try:
             IP_len.append(packet["IP"].len - packet["IP"].ihl)
-        except IndexError:
-            pass
+        except IndexError as e:
+            print("Error message: ", str(e))
         yield packet, dev_name
 
     IP_len_list.append(IP_len)
     IP_len = []
 
     for i, (data) in enumerate(IP_len_list):
-        if len(data) == 0:
+        if len(data) == 0:      # For ethernet only packets
             data.append(0)
         data = data[:min(slice_length, len(data)-1)]
         min_ip_len = min(data)  # minimum IP packet size
@@ -465,8 +460,8 @@ def calc_IP_header_size_features(packet_list, filter_con):
     for i, (packet, dev_name) in enumerate(packet_list):
         try:
             IP_header_len.append(packet["IP"].ihl)
-        except IndexError:
-            pass
+        except IndexError as e:
+            print("Error message: ", str(e))
         yield packet, dev_name
 
     IP_header_len_list.append(IP_header_len)
@@ -537,7 +532,7 @@ def calc_pkt_directions(packet_list, filter_con):
 
     for i, (data) in enumerate(pkt_direction_list):
         data.extend([2] * max(slice_length - len(data), 0))
-        concat_pkt_dir = ''.join(map(str, data))
+        concat_pkt_dir = ''.join(map(str, data))        # generating a single string with individual direction values
         feature_list[i].append(int(concat_pkt_dir))
 
 
@@ -565,8 +560,8 @@ def calc_pkt_rate(packet_list, filter_con):
                 else:
                     pkt_rate.append(pkt_counter)
                     pkt_counter = 0
-        except IndexError:
-            pass
+        except IndexError as e:
+            print("Error message: ", str(e))
         yield packet, dev_name
 
     pkt_rate.append(pkt_counter)
@@ -578,7 +573,7 @@ def calc_pkt_rate(packet_list, filter_con):
 
     for i, (data) in enumerate(pkt_rate_list):
         concat_pkt_rate = ""
-        for j in range(5):
+        for j in range(5):          # Filtering the first five packet rate values
             if j < len(data):
                 concat_pkt_rate += str(data[j])
             else:
@@ -606,15 +601,15 @@ def calc_IP_destinations(packet_list, filter_con):
                 dst_ip_counter = dst_ip_counter + 1
             else:
                 dest_ip_set[packet["IP"].dst] += 1
-        except IndexError:
-            pass
+        except IndexError as e:
+            print("Error message: ", str(e))
         dest_ip_seq.append(dst_ip_counter)
         yield packet, dev_name
 
     dest_ip_counter_list.append(dest_ip_seq)
     dst_ip_counter = 0
-    dest_ip_set = {}
     dest_ip_seq = []
+    dest_ip_set = {}
 
     for i, (data) in enumerate(dest_ip_counter_list):
         concat_ip_destinations = ""
@@ -641,9 +636,9 @@ def calc_port_class(packet_list, filter_con):
 
     for i, (packet, dev_name) in enumerate(packet_list):
         try:
-            tcp, udp, tl_pro = fe.get_tcpudp_feature(packet)    # TCP, UDP features
-            src_port_cls.append(fe.get_srcpc_feature(packet, tl_pro))                # source port class feature
-            dst_port_cls.append(fe.get_dstpc_feature(packet, tl_pro))
+            tcp, udp, tl_pro = fe.get_tcpudp_feature(packet)                # Get the TCP, UDP feature status
+            src_port_cls.append(fe.get_srcpc_feature(packet, tl_pro))       # Getting source port class value
+            dst_port_cls.append(fe.get_dstpc_feature(packet, tl_pro))       # Getting destination port class value
         except IndexError:
             src_port_cls.append(0)
             dst_port_cls.append(0)
@@ -659,7 +654,7 @@ def calc_port_class(packet_list, filter_con):
                 concat_src_prtclass += str(data[j])
             else:
                 concat_src_prtclass += str(0)
-        feature_list[i].append(int(concat_src_prtclass))
+        feature_list[i].append(int(concat_src_prtclass))        # Appending source port class feature
 
     for i, (data) in enumerate(dst_port_class_list):
         concat_dst_prtclass = ""
@@ -668,7 +663,7 @@ def calc_port_class(packet_list, filter_con):
                 concat_dst_prtclass += str(data[j])
             else:
                 concat_dst_prtclass += str(0)
-        feature_list[i].append(int(concat_dst_prtclass))
+        feature_list[i].append(int(concat_dst_prtclass))        # Appending destination port class feature
 
 
 def calc_dhcp_options(packet_list, filter_con):
@@ -680,11 +675,11 @@ def calc_dhcp_options(packet_list, filter_con):
 
     for i, (packet, dev_name) in enumerate(packet_list):
         try:
-            x = packet["DHCP options"].options
+            x = packet["DHCP options"].options      # Analysing the DHCP options header
             for i, (a) in enumerate(x):
-                if a[0] == "param_req_list":
+                if a[0] == "param_req_list":        # Extract the parameters in the 'param_req_list' of the header
                     sum = 0
-                    for j in range(len(a[1])):
+                    for j in range(len(a[1])):      # Get the sum of parameter values
                         sum = sum + a[1][j]
                     dhcp_opt_sum.append(sum)
         except (IndexError, AttributeError) as e:
@@ -716,7 +711,7 @@ def calc_dhcp_options(packet_list, filter_con):
 
 
 def end_generator(packet_list):
-    for i, (packet, dev_name) in enumerate(packet_list):
+    for i, (packet, dev_name) in enumerate(packet_list):        # This can be used to extend the generator function
         pass
 
 
@@ -728,6 +723,7 @@ def load_behavior_features(folder):
     filter = "bidirectional"
     packet_list_bidirec = load_data(folder, filter)
 
+    # Initiate the variables to store the features
     piped_to_IA = initiate_feature_list(packet_list_bidirec)
 
     # Calculate the features for packet list

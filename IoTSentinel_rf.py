@@ -33,6 +33,7 @@ def pcap_class_generator(folder):
     """ Generator function to generate a list of .pcap files """
     for path, dir_list, file_list in os.walk(folder):
         for name in fnmatch.filter(file_list, "*.pcap"):
+            print(os.path.join(path, name), os.path.basename(os.path.normpath(path)))   # current file name
             global dst_ip_counter
             global dest_ip_set
             global packet_index
@@ -54,7 +55,7 @@ def packet_class_generator(pcap_class_gen):
         global capture_len
         global source_mac_add
         global count
-        capture = rdpcap(pcapfile)
+        capture = rdpcap(pcapfile)      # Reading the network capture file usig scapy's rdpcap method
         count = 0
         capture_len = 0
         mac_address_list = {}
@@ -84,7 +85,7 @@ def packet_class_generator(pcap_class_gen):
         capture_len = src_mac_address_list[source_mac_add]
 
         for i, (packet) in enumerate(capture):
-            if packet[0].src == source_mac_add:
+            if packet[0].src == source_mac_add:         # filter packets originated from the device
                 yield packet, class_
 
 
@@ -95,7 +96,7 @@ def feature_class_generator(packet_class_gen):
         global dest_ip_set
         global last_vector
         global count
-        count = count + 1
+        count += 1
 
         #  0   1    2   3       4      5     6    7    8      9     10    11     12   13   14    15     16         17         18         19             20                21         22
         #ARP |LLC |IP |ICMP |ICMPv6 |EAPoL |TCP |UDP |HTTP |HTTPS |DHCP |BOOTP |SSDP |DNS |MDNS |NTP |padding |RouterAlert |size(int) |rawData |dst_ip_counter(int) |src_pc(int) |dst_pc(int)
@@ -159,7 +160,7 @@ def dataset(feature_class_gen):
             if not last_vector:
                 last_vector = feature
             else:
-                if all(i == j for i, j in zip(last_vector, feature)):
+                if all(x == y for x, y in zip(last_vector, feature)):
                     if capture_len == count and len(concat_feature) < 276:  # if the number of feature count is < 276,
                         while len(concat_feature) < 276:  # add 0's as padding
                             concat_feature = concat_feature + [0]
@@ -175,7 +176,6 @@ def dataset(feature_class_gen):
             else:
                 if len(f_array) == 5:
                     features_DL[class_] = f_array
-                    print("f_array: ", f_array)
                     f_array.append("End")
                 elif len(f_array) < 5:
                     f_array.append(feature)
@@ -188,11 +188,11 @@ def dataset(feature_class_gen):
                     concat_feature = concat_feature + feature
                 else:
                     if prev_class is class_:
-                        if not feature in feature_set:  # Adding a unique feature
+                        if feature not in feature_set:  # Adding a unique feature
                             feature_set.append(feature)
                             concat_feature = concat_feature + feature
                             if len(feature_set) == 5:
-                                if not class_ in vectors_edit_distance:
+                                if class_ not in vectors_edit_distance:
                                     vectors_edit_distance[class_] = feature_set[0:5]
                             if len(feature_set) == 12:
                                 index_array.append(packet_index)
@@ -243,10 +243,9 @@ def damerau_levenshtein(seq1, seq2):
     return float(thisrow[len(seq2) - 1]) / float(max(len(seq1), len(seq2)))
 
 
-def Calc_feature_importance(classifier, Number_of_features, f_impor, iterationwise_fimpor):
+def calc_feature_importance(classifier, Number_of_features, f_impor, iterationwise_fimpor):
     """ Function to calculate feature importance in sklearn classifiers """
     importances = classifier.feature_importances_  # calculates the feature importance
-    print("importances", importances)
     std = np.std([tree.feature_importances_ for tree in classifier.estimators_], axis=0)
     indices = np.argsort(importances)[::-1]
     for f in range(276):
@@ -259,7 +258,7 @@ def Calc_feature_importance(classifier, Number_of_features, f_impor, iterationwi
     return f_impor, iterationwise_fimpor
 
 
-def plot(device_labels, all_device_labels, y_lbl, title):
+def plot(device_labels, accuracy, y_lbl, title):
     """ Function to plot the device prediction accuracy """
     x_pos = np.arange(len(device_labels))
 
@@ -274,7 +273,7 @@ def plot(device_labels, all_device_labels, y_lbl, title):
     ax.legend((rects1[0], rects2[0]), ('Real Implementation', 'Current Implementation'))
 
     plt.bar(x_pos, accuracy, align='edge')
-    plt.xticks(x_pos, all_device_labels, rotation=315, ha='left')
+    plt.xticks(x_pos, device_labels, rotation=315, ha='left')
     plt.ylabel(y_lbl)
     plt.title(title)
     plt.grid(linestyle='dotted')
@@ -304,8 +303,8 @@ if __name__ == "__main__":
         pickle.dump(dataset_y, open("Sentinel_dataset_y.pickle", "wb"))
         pickle.dump(vectors_edit_distance, open("Sentinel_features_DL.pickle", "wb"))
 
-    num_of_iter = 10
-    same_to_other_ratio = 10
+    num_of_iter = 10            # number of iterations the prediction happens
+    same_to_other_ratio = 10    # Dataset split ratio
     dev_pred_accuracy = {}      # records pred_vector accuracy
     test_dev_counter = {}
     all_tested = []
@@ -315,6 +314,7 @@ if __name__ == "__main__":
     Number_of_features = 23
 
     for j in range(num_of_iter):
+        print("Running the iteration number: ", j)
         classifier_list = {}  # stores the computed classifiers
 
         skf = StratifiedKFold(n_splits=10, shuffle=True)
@@ -359,13 +359,10 @@ if __name__ == "__main__":
 
                 data_DX = np.array(data_DX)     # convert training data lists to numpy arrays
                 data_Dy = np.array(data_Dy)
-                print(j, "Device: ", device, "Same size: ", len(temp_X), "other size: ", len(out_list), "All size: ", len(data_DX), len(data_DX))
 
                 clf = RandomForestClassifier(n_estimators=50, max_depth=3)
                 clf.fit(data_DX, data_Dy)       # create a binary classifier for each device type
-                f_importance, iterationwise_fimportance = Calc_feature_importance(clf, Number_of_features, f_importance, iterationwise_fimportance)
-                print("iterationwise_fimportance: ", iterationwise_fimportance)
-                break
+                f_importance, iterationwise_fimportance = calc_feature_importance(clf, Number_of_features, f_importance, iterationwise_fimportance)
                 classifier_list[device] = clf   # store the classifiers in dictionary object
 
             # 27 classifiers generated by this point
@@ -383,6 +380,7 @@ if __name__ == "__main__":
                         if (pred >= 0.2) and (classifier.classes_[k] != "Other"):
                             classifiers_results.append(classifier.classes_[k])
 
+                print("classifiers_results: ", classifiers_results)
                 if len(classifiers_results) > 1:
                     ED_results = {}         # stores results of edit distance calculations
                     for prediction in classifiers_results:
@@ -393,7 +391,7 @@ if __name__ == "__main__":
                             temp_comp = X_train[y_train == prediction]  # filter all fps for a particular device
                             out_list = sample(list(temp_comp), 5)  # select all data samples from temp_X for a device
                             for fp in out_list:
-                                edit_distance = edit_distance + damerau_levenshtein(str(list(X_unknown[i])), str(list(fp)))
+                                edit_distance += damerau_levenshtein(str(list(X_unknown[i])), str(list(fp)))
                             ED_results[prediction] = edit_distance
 
                     if len(ED_results) > 1:
@@ -445,5 +443,5 @@ if __name__ == "__main__":
 
     # Plotting the device prediction accuracy
     y_lbl = 'Accuracy'
-    title = 'Random forest with Edit Distance (Identical to IoT Sentinel)'
-    plot(device_labels, all_device_labels, y_lbl, title)
+    title = 'Random Forest Prediction with Edit Distance (IoT Sentinel)'
+    plot(device_labels, accuracy, y_lbl, title)
